@@ -1,0 +1,2 @@
+The desktop-app folder is the source code for the desktop app, using c-sharp
+the webserver folder is the source code for the webserver, using django.
