@@ -54,7 +54,9 @@ public class OptimizedSQLiteDataAccessTests
             }
             catch (IOException)
             {
-                if (i == 4) throw; // Re-throw on final attempt
+                // Don't throw on final attempt - just ignore cleanup errors
+                // The temp directory will be cleaned up eventually
+                if (i == 4) break;
                 Thread.Sleep(100);
             }
         }

@@ -24,6 +24,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\TimeTracker.DesktopApp\TimeTracker.DesktopApp.csproj" />
+    <ProjectReference Include="..\TimeTracker.DesktopApp.Tests\TimeTracker.DesktopApp.Tests.csproj" />
   </ItemGroup>
 
 </Project>

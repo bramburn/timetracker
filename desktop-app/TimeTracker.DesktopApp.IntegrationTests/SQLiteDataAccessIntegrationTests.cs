@@ -1,22 +1,33 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using NUnit.Framework;
 using TimeTracker.DesktopApp;
+using TimeTracker.DesktopApp.Tests.TestHelpers;
 
 namespace TimeTracker.DesktopApp.IntegrationTests;
 
 [TestFixture]
-public class SQLiteDataAccessIntegrationTests
+public class OptimizedSQLiteDataAccessIntegrationTests
 {
-    private ILogger<SQLiteDataAccess> _logger;
+    private ILogger<OptimizedSQLiteDataAccess> _logger;
     private string _testDatabasePath;
-    private SQLiteDataAccess _dataAccess;
+    private OptimizedSQLiteDataAccess _dataAccess;
+    private IConfiguration _configuration;
 
     [SetUp]
     public void SetUp()
     {
-        _logger = new LoggerFactory().CreateLogger<SQLiteDataAccess>();
+        _logger = new LoggerFactory().CreateLogger<OptimizedSQLiteDataAccess>();
         _testDatabasePath = Path.Combine(Path.GetTempPath(), $"integration_test_timetracker_{Guid.NewGuid()}.db");
-        _dataAccess = new SQLiteDataAccess(_testDatabasePath, _logger);
+
+        // Create test configuration
+        _configuration = TestConfiguration.Create(new Dictionary<string, string>
+        {
+            ["TimeTracker:MaxBatchSize"] = "10",
+            ["TimeTracker:BatchInsertIntervalMs"] = "1000"
+        });
+
+        _dataAccess = new OptimizedSQLiteDataAccess(_testDatabasePath, _configuration, _logger);
     }
 
     [TearDown]
@@ -85,6 +96,9 @@ public class SQLiteDataAccessIntegrationTests
             Assert.That(insertResult, Is.True, $"Failed to insert activity: {activity.ActiveWindowTitle}");
         }
 
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
+
         // Assert - Verify count
         var totalCount = await _dataAccess.GetActivityCountAsync();
         Assert.That(totalCount, Is.EqualTo(3));
@@ -135,6 +149,9 @@ public class SQLiteDataAccessIntegrationTests
         }
         var insertDuration = DateTime.UtcNow - insertStartTime;
 
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
+
         // Assert - Verify performance (should complete within reasonable time)
         Assert.That(insertDuration.TotalSeconds, Is.LessThan(30), "Insert operations took too long");
 
@@ -166,6 +183,9 @@ public class SQLiteDataAccessIntegrationTests
 
         // Act
         var insertResult = await _dataAccess.InsertActivityAsync(activityWithSpecialChars);
+
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
 
         // Assert
         Assert.That(insertResult, Is.True);
@@ -212,6 +232,9 @@ public class SQLiteDataAccessIntegrationTests
         // Wait for all tasks to complete
         var results = await Task.WhenAll(tasks);
 
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
+
         // Assert - All operations should succeed
         Assert.That(results.All(r => r), Is.True, "Some concurrent insert operations failed");
 
@@ -234,6 +257,9 @@ public class SQLiteDataAccessIntegrationTests
 
         // Act
         var insertResult = await _dataAccess.InsertActivityAsync(activityWithEmptyStrings);
+
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
 
         // Assert
         Assert.That(insertResult, Is.True);
@@ -264,6 +290,9 @@ public class SQLiteDataAccessIntegrationTests
 
         // Act
         var insertResult = await _dataAccess.InsertActivityAsync(activity);
+
+        // Wait for batch processing to complete
+        await Task.Delay(2000); // Wait longer than batch interval
 
         // Assert
         Assert.That(insertResult, Is.True);

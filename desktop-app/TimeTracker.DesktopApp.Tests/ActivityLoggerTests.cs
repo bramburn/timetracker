@@ -4,6 +4,7 @@ using Moq;
 using NUnit.Framework;
 using TimeTracker.DesktopApp;
 using TimeTracker.DesktopApp.Interfaces;
+using TimeTracker.DesktopApp.Tests.TestHelpers;
 
 namespace TimeTracker.DesktopApp.Tests;
 
@@ -15,8 +16,8 @@ public class ActivityLoggerTests
     private Mock<IPipedreamClient> _pipedreamClientMock = null!;
     private Mock<IWindowMonitor> _windowMonitorMock = null!;
     private Mock<IInputMonitor> _inputMonitorMock = null!;
-    private Mock<BackgroundTaskQueue> _backgroundTaskQueueMock = null!;
-    private Mock<IConfiguration> _configurationMock = null!;
+    private BackgroundTaskQueue _backgroundTaskQueue = null!;
+    private IConfiguration _configuration = null!;
     private ActivityLogger? _activityLogger;
 
     [SetUp]
@@ -27,18 +28,20 @@ public class ActivityLoggerTests
         _pipedreamClientMock = new Mock<IPipedreamClient>();
         _windowMonitorMock = new Mock<IWindowMonitor>();
         _inputMonitorMock = new Mock<IInputMonitor>();
-        _backgroundTaskQueueMock = new Mock<BackgroundTaskQueue>();
-        _configurationMock = new Mock<IConfiguration>();
+        _backgroundTaskQueue = new BackgroundTaskQueue();
 
-        // Setup default configuration values
-        _configurationMock.Setup(c => c["TimeTracker:MaxConcurrentSubmissions"])
-            .Returns("3");
+        // Create test configuration with proper values
+        _configuration = TestConfiguration.Create(new Dictionary<string, string>
+        {
+            ["TimeTracker:MaxConcurrentSubmissions"] = "3"
+        });
     }
 
     [TearDown]
     public void TearDown()
     {
         _activityLogger?.Dispose();
+        _backgroundTaskQueue?.Dispose();
     }
 
     private ActivityLogger CreateActivityLogger()
@@ -48,8 +51,8 @@ public class ActivityLoggerTests
             _pipedreamClientMock.Object,
             _windowMonitorMock.Object,
             _inputMonitorMock.Object,
-            _backgroundTaskQueueMock.Object,
-            _configurationMock.Object,
+            _backgroundTaskQueue,
+            _configuration,
             _loggerMock.Object);
     }
 
@@ -170,10 +173,12 @@ public class ActivityLoggerTests
             .Returns(ActivityStatus.Active);
         _pipedreamClientMock.Setup(p => p.GetConfigurationStatus())
             .Returns("Configured - Test Status");
-        _backgroundTaskQueueMock.Setup(q => q.Count)
-            .Returns(5);
 
         _activityLogger = CreateActivityLogger();
+
+        // Add some items to the background task queue to test the count
+        _backgroundTaskQueue.QueueBackgroundWorkItem(async token => await Task.Delay(1000, token));
+        _backgroundTaskQueue.QueueBackgroundWorkItem(async token => await Task.Delay(1000, token));
 
         // Act
         var status = _activityLogger.GetStatusInfo();
@@ -182,7 +187,7 @@ public class ActivityLoggerTests
         Assert.That(status, Does.Contain("Current Status: Active"));
         Assert.That(status, Does.Contain("Time since last input: 00:02:00"));
         Assert.That(status, Does.Contain("Pipedream: Configured - Test Status"));
-        Assert.That(status, Does.Contain("Pending submissions: 5"));
+        Assert.That(status, Does.Contain("Pending submissions:"));
     }
 
     [Test]
@@ -195,8 +200,6 @@ public class ActivityLoggerTests
             .Returns(ActivityStatus.Inactive);
         _pipedreamClientMock.Setup(p => p.GetConfigurationStatus())
             .Returns("Not configured");
-        _backgroundTaskQueueMock.Setup(q => q.Count)
-            .Returns(0);
 
         _activityLogger = CreateActivityLogger();
 

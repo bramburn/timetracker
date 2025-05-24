@@ -275,25 +275,27 @@ public class OptimizedSQLiteDataAccess : IDataAccess
     {
         if (!_disposed)
         {
-            _disposed = true;
-
             try
             {
-                // Stop the timer
+                // Stop the timer first
                 _batchInsertTimer?.Dispose();
 
-                // Process any remaining pending inserts
+                // Process any remaining pending inserts BEFORE setting disposed flag
                 if (!_pendingInserts.IsEmpty)
                 {
                     _logger.LogInformation("Processing {Count} remaining pending inserts during disposal", _pendingInserts.Count);
                     ProcessBatchInserts().Wait(TimeSpan.FromSeconds(30)); // Wait up to 30 seconds
                 }
 
+                // Now set the disposed flag
+                _disposed = true;
+
                 _batchSemaphore?.Dispose();
                 _logger.LogInformation("OptimizedSQLiteDataAccess disposed successfully");
             }
             catch (Exception ex)
             {
+                _disposed = true; // Ensure we mark as disposed even if there's an error
                 _logger.LogError(ex, "Error during OptimizedSQLiteDataAccess disposal");
             }
         }

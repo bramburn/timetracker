@@ -1,193 +1,156 @@
 # TimeTracker - Employee Activity Monitor
 
-## Overview
+A Windows service application that monitors user activity, stores data locally in SQLite, and transmits it to a configurable endpoint.
 
-TimeTracker is an Employee Activity Monitor designed to capture essential user activity data on Windows systems. This Phase 1 MVP focuses on developing a discreet Windows Service application that monitors user activity, stores data locally in SQLite, and transmits it to a configurable Pipedream endpoint for testing.
+## Features
 
-## Project Structure
-
-```
-timetracker/
-├── desktop-app/                    # C# Windows Service Application
-│   └── TimeTracker.DesktopApp/     # Main desktop application project
-├── webserver/                      # Django web server (future phases)
-├── docs/                          # Documentation
-│   └── phase-1.md                 # Phase 1 requirements and specifications
-├── timetracker.sln                # Visual Studio solution file
-├── .gitignore                     # Git ignore patterns
-└── README.md                      # This file
-```
-
-## Phase 1 Features
-
-### Core Functionality
-- **Silent Windows Service Operation**: Runs as a background Windows Service with no UI
-- **User Identification**: Automatically captures Windows username
-- **Active Window Tracking**: Monitors foreground window changes and application usage
-- **Activity Detection**: Binary active/inactive status based on keyboard/mouse input
-- **Local Data Storage**: Persistent SQLite database for activity logs
-- **Data Submission**: HTTP POST to configurable Pipedream endpoint for testing
-
-### Key Components
-- **WindowMonitor**: Tracks active window changes using Win32 APIs
-- **InputMonitor**: Detects user input activity via global hooks
-- **ActivityLogger**: Central orchestrator for data collection and storage
-- **SQLiteDataAccess**: Database operations and schema management
-- **PipedreamClient**: HTTP client for data submission with retry logic
+- Runs as a background Windows Service
+- Tracks active window changes and application usage
+- Detects user activity (keyboard/mouse input)
+- Stores data locally in SQLite database
+- Transmits data to configurable endpoint
+- Minimal system impact (< 5% CPU, < 100MB RAM)
 
 ## Requirements
 
-### Development Environment
-- .NET 8 SDK
-- Visual Studio 2022 (or Rider/VS Code with C# Dev Kit)
 - Windows 10/11 (x64)
+- .NET 8 Runtime
+- Administrator privileges for installation
 
-### Key Dependencies
-- Microsoft.Extensions.Hosting.WindowsServices
-- Microsoft.Data.Sqlite
-- Microsoft.Windows.CsWin32
-- System.Text.Json (built-in)
+## Quick Start
 
-## Getting Started
+### Installation
 
-### Building the Application
+1. Download the latest MSI installer from the [Releases](https://github.com/yourusername/timetracker/releases) page
+2. Run the installer with administrator privileges
+3. The service will automatically start and run in the background
+
+### Manual Installation (Development)
 
 1. Clone the repository:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/yourusername/timetracker.git
    cd timetracker
    ```
 
-2. Restore NuGet packages:
+2. Build the solution:
    ```bash
    dotnet restore
+   dotnet build
    ```
 
-3. Build the solution:
-   ```bash
-   dotnet build
+3. Install the service:
+   ```powershell
+   cd desktop-app
+   .\install-service.ps1
    ```
 
 ### Configuration
 
-1. Update `desktop-app/TimeTracker.DesktopApp/appsettings.json` with your Pipedream endpoint URL
-2. Configure any other settings as needed
+1. Update `desktop-app/TimeTracker.DesktopApp/appsettings.json` with your endpoint URL
+2. Restart the service to apply changes
 
-### Running for Development
+## Service Management
 
-```bash
-cd desktop-app/TimeTracker.DesktopApp
-dotnet run
-```
-
-### Installing as Windows Service
-
-#### Prerequisites
-- Windows 10/11 (x64)
-- .NET 8 Runtime (or SDK for development)
-- Administrator privileges
-
-#### Quick Installation
-1. **Install WiX Toolset** (if building from source):
-   ```powershell
-   dotnet tool install --global wix
-   ```
-
-2. **Build the installer**:
-   ```powershell
-   cd desktop-app
-   .\build-installer-simple.ps1
-   ```
-
-3. **Install the service** (requires Administrator):
-   ```powershell
-   .\install-service.ps1
-   ```
-
-> **Note**: For detailed deployment instructions, see [DEPLOYMENT.md](desktop-app/DEPLOYMENT.md)
-
-#### Alternative: Use Pre-built MSI
-If available, download the MSI installer and run:
-```powershell
-.\install-service.ps1 -MsiPath "path\to\TimeTrackerInstaller.msi"
-```
-
-#### Service Management
 - **Service Name**: `TimeTracker.DesktopApp`
 - **Display Name**: `Internal Employee Activity Monitor`
-- **Auto-start**: Yes (starts with Windows)
-- **Account**: LocalSystem
 
-#### Uninstallation
+### Commands
+
 ```powershell
+# Start service
+net start TimeTracker.DesktopApp
+
+# Stop service
+net stop TimeTracker.DesktopApp
+
+# Uninstall
 .\install-service.ps1 -Uninstall
 ```
 
 ## Data Collection
 
-### Activity Data Model
-- **Timestamp**: UTC timestamp of the activity
-- **WindowsUsername**: Current Windows user
-- **ActiveWindowTitle**: Title of the foreground window
-- **ApplicationProcessName**: Name of the active application process
-- **ActivityStatus**: Binary status ("Active" or "Inactive")
+The service collects:
+- Active window title
+- Application process name
+- User activity status
+- Windows username
+- Timestamp
 
-### Local Storage
-- SQLite database (`TimeTracker.db`) created in application directory
-- `ActivityLogs` table with chronological data appending
-- Persistent storage ensures no data loss during network outages
+Data is stored locally in SQLite and transmitted to the configured endpoint.
 
-### Data Submission
-- JSON payload sent to configured Pipedream endpoint
-- Robust error handling with retry mechanisms
-- Continues local storage even if submission fails
+## Development
 
-## Performance Requirements
+### Prerequisites
 
-- **CPU Usage**: < 5% average
-- **Memory Usage**: < 100MB
-- **Minimal System Impact**: Optimized polling and efficient API calls
+- .NET 8 SDK
+- Visual Studio 2022 (or Rider/VS Code with C# Dev Kit)
+- WiX Toolset v4.0 or later
+
+### Setting Up WiX Toolset
+
+1. Install WiX Toolset:
+   ```powershell
+   # Using winget (recommended)
+   winget install WiXToolset.WiXToolset
+
+   # Or download from https://github.com/wixtoolset/wix4/releases
+   ```
+
+2. Add WiX to your PATH if not already done:
+   ```powershell
+   # Add to your PowerShell profile
+   $env:Path += ";C:\Program Files\WiX Toolset v4.0\bin"
+   ```
+
+### Building the Installer
+
+1. Navigate to the desktop app directory:
+   ```powershell
+   cd desktop-app
+   ```
+
+2. Build the MSI installer:
+   ```powershell
+   # Build using the provided script
+   .\build-installer-simple.ps1
+
+   # Or manually
+   dotnet build TimeTracker.Installer
+   ```
+
+3. The MSI installer will be created in the `dist` directory
+
+### Installing for Development
+
+1. Build the solution:
+   ```powershell
+   dotnet restore
+   dotnet build
+   ```
+
+2. Install the service:
+   ```powershell
+   cd desktop-app
+   .\install-service.ps1
+   ```
+
+3. Verify installation:
+   ```powershell
+   Get-Service TimeTracker.DesktopApp
+   ```
 
 ## Security & Privacy
 
-- **No Keystroke Logging**: Only binary activity detection, no actual key content
-- **HTTPS Transmission**: Encrypted data in transit
-- **Local Database Protection**: Secure file location and service account permissions
-- **Data Minimization**: Collects only necessary activity metadata
-
-## Testing
-
-### Unit Tests
-- Individual component testing with mocked dependencies
-- Database operations testing
-- JSON serialization validation
-
-### Integration Tests
-- End-to-end data flow testing
-- Pipedream submission testing
-- Local storage persistence testing
-
-### System Tests
-- Windows Service installation and operation
-- Performance impact validation
-- Network error handling
-- Service start/stop/restart scenarios
-
-## Development Status
-
-- ✅ Phase 1 Requirements Analysis
-- 🚧 Core Application Development (In Progress)
-- ⏳ Windows Service Implementation
-- ⏳ Monitoring Components
-- ⏳ Data Persistence
-- ⏳ Network Communication
-- ⏳ Testing & Validation
-- ⏳ Installer Package (Future Phase)
-
-## Contributing
-
-Please refer to the project documentation in the `docs/` directory for detailed requirements and specifications.
+- No keystroke logging
+- HTTPS transmission
+- Local database protection
+- Data minimization
 
 ## License
 
 [License information to be added]
+
+## Contributing
+
+Please refer to the project documentation in the `docs/` directory for detailed requirements and specifications.
