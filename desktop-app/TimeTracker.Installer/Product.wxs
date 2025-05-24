@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+    <Package Name="Internal Employee Activity Monitor"
+             Manufacturer="IceLab Solutions"
+             Version="1.0.0.0"
+             UpgradeCode="12345678-1234-5678-9ABC-123456789012">
+
+        <SummaryInformation Keywords="Installer"
+                           Description="Internal Employee Activity Monitor Installer"
+                           Manufacturer="IceLab Solutions" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+
+        <!-- Installation directory structure -->
+        <StandardDirectory Id="ProgramFiles64Folder">
+            <Directory Id="INSTALLFOLDER" Name="TimeTracker">
+                <Directory Id="APPFOLDER" Name="DesktopApp" />
+            </Directory>
+        </StandardDirectory>
+
+        <!-- Feature definition -->
+        <Feature Id="ProductFeature" Title="TimeTracker Application" Level="1">
+            <ComponentRef Id="MainComponent" />
+        </Feature>
+
+        <!-- Main component with all files -->
+        <DirectoryRef Id="APPFOLDER">
+            <Component Id="MainComponent" Guid="11111111-2222-3333-4444-555555555555">
+                <!-- Main executable -->
+                <File Id="TimeTrackerExe"
+                      Source="$(var.TimeTrackerAppPublishDir)\TimeTracker.DesktopApp.exe"
+                      KeyPath="yes" />
+
+                <!-- Configuration file -->
+                <File Id="AppSettings"
+                      Source="$(var.TimeTrackerAppPublishDir)\appsettings.json" />
+
+                <!-- Service installation -->
+                <ServiceInstall Id="TimeTrackerService"
+                                Name="TimeTracker.DesktopApp"
+                                DisplayName="Internal Employee Activity Monitor"
+                                Description="Monitors employee application usage and activity for productivity insights."
+                                Type="ownProcess"
+                                Start="auto"
+                                Account="LocalSystem"
+                                ErrorControl="normal" />
+
+                <!-- Service control -->
+                <ServiceControl Id="StartTimeTrackerService"
+                                Name="TimeTracker.DesktopApp"
+                                Start="install"
+                                Stop="both"
+                                Remove="uninstall" />
+            </Component>
+        </DirectoryRef>
+
+    </Package>
+
+</Wix>

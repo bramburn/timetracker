@@ -13,6 +13,7 @@ bld/
 [Oo]bj/
 [Ll]og/
 [Ll]ogs/
+repomix-output.xml
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
@@ -330,6 +331,13 @@ TimeTracker.db
 *.suo
 *.user
 *.vs/
+
+# WiX Installer specific
+*.wixobj
+*.wixpdb
+*.msi
+*.msm
+*.cab
 
 # Webserver specific (for future use)
 node_modules/

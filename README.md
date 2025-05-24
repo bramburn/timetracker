@@ -82,7 +82,46 @@ dotnet run
 
 ### Installing as Windows Service
 
-*Note: Service installation will be implemented in future phases with WiX installer*
+#### Prerequisites
+- Windows 10/11 (x64)
+- .NET 8 Runtime (or SDK for development)
+- Administrator privileges
+
+#### Quick Installation
+1. **Install WiX Toolset** (if building from source):
+   ```powershell
+   dotnet tool install --global wix
+   ```
+
+2. **Build the installer**:
+   ```powershell
+   cd desktop-app
+   .\build-installer-simple.ps1
+   ```
+
+3. **Install the service** (requires Administrator):
+   ```powershell
+   .\install-service.ps1
+   ```
+
+> **Note**: For detailed deployment instructions, see [DEPLOYMENT.md](desktop-app/DEPLOYMENT.md)
+
+#### Alternative: Use Pre-built MSI
+If available, download the MSI installer and run:
+```powershell
+.\install-service.ps1 -MsiPath "path\to\TimeTrackerInstaller.msi"
+```
+
+#### Service Management
+- **Service Name**: `TimeTracker.DesktopApp`
+- **Display Name**: `Internal Employee Activity Monitor`
+- **Auto-start**: Yes (starts with Windows)
+- **Account**: LocalSystem
+
+#### Uninstallation
+```powershell
+.\install-service.ps1 -Uninstall
+```
 
 ## Data Collection
 

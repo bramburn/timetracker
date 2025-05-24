@@ -1,0 +1,29 @@
+<Project Sdk="WiX.SDK/4.0.5">
+
+  <PropertyGroup>
+    <OutputName>TimeTrackerAppInstaller</OutputName>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <!-- Path to the published TimeTracker application -->
+    <TimeTrackerAppPublishDir>..\TimeTracker.DesktopApp\bin\$(Configuration)\net8.0-windows\win-x64\publish\</TimeTrackerAppPublishDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="WiX.SDK" Version="4.0.5" />
+  </ItemGroup>
+
+  <!-- Optional: Reference the C# project to ensure it's built first -->
+  <!--
+  <ItemGroup>
+    <ProjectReference Include="..\TimeTracker.DesktopApp\TimeTracker.DesktopApp.csproj">
+      <Name>TimeTracker.DesktopApp</Name>
+      <Project>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</Project>
+      <Private>True</Private>
+      <DoNotHarvest>True</DoNotHarvest>
+      <RefProjectOutputGroups>Binaries;Content;Satellites</RefProjectOutputGroups>
+      <RefTargetDir>INSTALLFOLDER</RefTargetDir>
+    </ProjectReference>
+  </ItemGroup>
+  -->
+
+</Project>
