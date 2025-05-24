@@ -75,10 +75,14 @@ public class Program
     /// <param name="configuration">The application configuration</param>
     private static void RegisterServices(IServiceCollection services, IConfiguration configuration)
     {
-        // Register SQLite data access
-        services.AddSingleton<SQLiteDataAccess>(provider =>
+        // Register background task queue
+        services.AddSingleton<BackgroundTaskQueue>();
+
+        // Register optimized SQLite data access
+        services.AddSingleton<OptimizedSQLiteDataAccess>(provider =>
         {
-            var logger = provider.GetRequiredService<ILogger<SQLiteDataAccess>>();
+            var logger = provider.GetRequiredService<ILogger<OptimizedSQLiteDataAccess>>();
+            var config = provider.GetRequiredService<IConfiguration>();
             var databasePath = configuration["TimeTracker:DatabasePath"] ?? "TimeTracker.db";
 
             // Ensure database path is absolute
@@ -88,7 +92,7 @@ public class Program
                 databasePath = Path.Combine(appDirectory, databasePath);
             }
 
-            return new SQLiteDataAccess(databasePath, logger);
+            return new OptimizedSQLiteDataAccess(databasePath, config, logger);
         });
 
         // Register Pipedream client
@@ -98,8 +102,8 @@ public class Program
         services.AddSingleton<IWindowMonitor, OptimizedWindowMonitor>();
         services.AddSingleton<IInputMonitor, OptimizedInputMonitor>();
 
-        // Register data access interface
-        services.AddSingleton<IDataAccess>(provider => provider.GetRequiredService<SQLiteDataAccess>());
+        // Register data access interface (using optimized implementation)
+        services.AddSingleton<IDataAccess>(provider => provider.GetRequiredService<OptimizedSQLiteDataAccess>());
 
         // Register Pipedream client interface
         services.AddSingleton<IPipedreamClient>(provider => provider.GetRequiredService<PipedreamClient>());

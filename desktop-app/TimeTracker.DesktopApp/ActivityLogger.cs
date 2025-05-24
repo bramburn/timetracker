@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using TimeTracker.DesktopApp.Interfaces;
 
@@ -15,6 +16,10 @@ public class ActivityLogger : IDisposable
     private readonly IPipedreamClient _pipedreamClient;
     private readonly IWindowMonitor _windowMonitor;
     private readonly IInputMonitor _inputMonitor;
+    private readonly BackgroundTaskQueue _backgroundTaskQueue;
+    private readonly SemaphoreSlim _submissionSemaphore;
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private readonly Task _submissionProcessorTask;
 
     private ActivityDataModel? _currentActivity;
     private bool _disposed = false;
@@ -24,6 +29,8 @@ public class ActivityLogger : IDisposable
         IPipedreamClient pipedreamClient,
         IWindowMonitor windowMonitor,
         IInputMonitor inputMonitor,
+        BackgroundTaskQueue backgroundTaskQueue,
+        IConfiguration configuration,
         ILogger<ActivityLogger> logger)
     {
         _logger = logger;
@@ -31,12 +38,20 @@ public class ActivityLogger : IDisposable
         _pipedreamClient = pipedreamClient;
         _windowMonitor = windowMonitor;
         _inputMonitor = inputMonitor;
+        _backgroundTaskQueue = backgroundTaskQueue;
+
+        // Initialize semaphore for concurrent submissions
+        var maxConcurrentSubmissions = configuration.GetValue<int>("TimeTracker:MaxConcurrentSubmissions", 3);
+        _submissionSemaphore = new SemaphoreSlim(maxConcurrentSubmissions, maxConcurrentSubmissions);
 
         // Subscribe to events from monitors
         _windowMonitor.WindowChanged += OnWindowChanged;
         _inputMonitor.ActivityStatusChanged += OnActivityStatusChanged;
 
-        _logger.LogInformation("ActivityLogger initialized and event subscriptions established");
+        // Start background submission processor
+        _submissionProcessorTask = Task.Run(ProcessSubmissionQueue);
+
+        _logger.LogInformation("ActivityLogger initialized with {MaxConcurrentSubmissions} max concurrent submissions", maxConcurrentSubmissions);
     }
 
     /// <summary>
@@ -180,9 +195,10 @@ public class ActivityLogger : IDisposable
                 _logger.LogError("Failed to store activity data locally: {Activity}", activityData.ToString());
             }
 
-            // Submit to Pipedream (this can fail without affecting local storage)
-            _ = Task.Run(async () =>
+            // Enqueue Pipedream submission for background processing
+            _backgroundTaskQueue.QueueBackgroundWorkItem(async cancellationToken =>
             {
+                await _submissionSemaphore.WaitAsync(cancellationToken);
                 try
                 {
                     var submissionSuccess = await _pipedreamClient.SubmitActivityDataAsync(activityData);
@@ -190,10 +206,18 @@ public class ActivityLogger : IDisposable
                     {
                         _logger.LogWarning("Failed to submit activity data to Pipedream: {Activity}", activityData.ToString());
                     }
+                    else
+                    {
+                        _logger.LogDebug("Successfully submitted activity data to Pipedream: {Activity}", activityData.ToString());
+                    }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogError(ex, "Error submitting activity data to Pipedream");
+                    _logger.LogError(ex, "Error submitting activity data to Pipedream: {Activity}", activityData.ToString());
+                }
+                finally
+                {
+                    _submissionSemaphore.Release();
                 }
             });
         }
@@ -256,24 +280,96 @@ public class ActivityLogger : IDisposable
         var timeSinceLastInput = _inputMonitor.GetTimeSinceLastInput();
         var currentStatus = _inputMonitor.GetCurrentActivityStatus();
         var pipedreamStatus = _pipedreamClient.GetConfigurationStatus();
+        var queueCount = _backgroundTaskQueue.Count;
 
         return $"Current Status: {currentStatus}, " +
                $"Time since last input: {(timeSinceLastInput == TimeSpan.MaxValue ? "Never" : timeSinceLastInput.ToString(@"hh\:mm\:ss"))}, " +
-               $"Pipedream: {pipedreamStatus}";
+               $"Pipedream: {pipedreamStatus}, " +
+               $"Pending submissions: {queueCount}";
+    }
+
+    /// <summary>
+    /// Background task that processes the submission queue
+    /// </summary>
+    private async Task ProcessSubmissionQueue()
+    {
+        _logger.LogInformation("Background submission processor started");
+
+        try
+        {
+            while (!_cancellationTokenSource.Token.IsCancellationRequested)
+            {
+                var workItem = await _backgroundTaskQueue.DequeueAsync(_cancellationTokenSource.Token);
+                if (workItem != null)
+                {
+                    try
+                    {
+                        await workItem(_cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // Expected when cancellation is requested
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error executing background work item");
+                    }
+                }
+                else
+                {
+                    // Queue is completed
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in background submission processor");
+        }
+
+        _logger.LogInformation("Background submission processor stopped");
     }
 
     public void Dispose()
     {
         if (!_disposed)
         {
-            Stop();
-
-            // Unsubscribe from events
-            _windowMonitor.WindowChanged -= OnWindowChanged;
-            _inputMonitor.ActivityStatusChanged -= OnActivityStatusChanged;
-
             _disposed = true;
-            _logger.LogInformation("ActivityLogger disposed");
+
+            try
+            {
+                Stop();
+
+                // Signal cancellation and complete the background queue
+                _cancellationTokenSource.Cancel();
+                _backgroundTaskQueue.CompleteAdding();
+
+                // Wait for the submission processor to complete (with timeout)
+                if (!_submissionProcessorTask.Wait(TimeSpan.FromSeconds(30)))
+                {
+                    _logger.LogWarning("Background submission processor did not complete within timeout");
+                }
+
+                // Unsubscribe from events
+                _windowMonitor.WindowChanged -= OnWindowChanged;
+                _inputMonitor.ActivityStatusChanged -= OnActivityStatusChanged;
+
+                // Dispose resources
+                _submissionSemaphore?.Dispose();
+                _backgroundTaskQueue?.Dispose();
+                _cancellationTokenSource?.Dispose();
+
+                _logger.LogInformation("ActivityLogger disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error during ActivityLogger disposal");
+            }
         }
     }
 }

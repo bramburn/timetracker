@@ -1,4 +1,7 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Moq;
+using NUnit.Framework;
 using TimeTracker.DesktopApp;
 using TimeTracker.DesktopApp.Interfaces;
 
@@ -12,6 +15,8 @@ public class ActivityLoggerTests
     private Mock<IPipedreamClient> _pipedreamClientMock = null!;
     private Mock<IWindowMonitor> _windowMonitorMock = null!;
     private Mock<IInputMonitor> _inputMonitorMock = null!;
+    private Mock<BackgroundTaskQueue> _backgroundTaskQueueMock = null!;
+    private Mock<IConfiguration> _configurationMock = null!;
     private ActivityLogger? _activityLogger;
 
     [SetUp]
@@ -22,6 +27,12 @@ public class ActivityLoggerTests
         _pipedreamClientMock = new Mock<IPipedreamClient>();
         _windowMonitorMock = new Mock<IWindowMonitor>();
         _inputMonitorMock = new Mock<IInputMonitor>();
+        _backgroundTaskQueueMock = new Mock<BackgroundTaskQueue>();
+        _configurationMock = new Mock<IConfiguration>();
+
+        // Setup default configuration values
+        _configurationMock.Setup(c => c["TimeTracker:MaxConcurrentSubmissions"])
+            .Returns("3");
     }
 
     [TearDown]
@@ -37,6 +48,8 @@ public class ActivityLoggerTests
             _pipedreamClientMock.Object,
             _windowMonitorMock.Object,
             _inputMonitorMock.Object,
+            _backgroundTaskQueueMock.Object,
+            _configurationMock.Object,
             _loggerMock.Object);
     }
 
@@ -157,6 +170,8 @@ public class ActivityLoggerTests
             .Returns(ActivityStatus.Active);
         _pipedreamClientMock.Setup(p => p.GetConfigurationStatus())
             .Returns("Configured - Test Status");
+        _backgroundTaskQueueMock.Setup(q => q.Count)
+            .Returns(5);
 
         _activityLogger = CreateActivityLogger();
 
@@ -167,6 +182,7 @@ public class ActivityLoggerTests
         Assert.That(status, Does.Contain("Current Status: Active"));
         Assert.That(status, Does.Contain("Time since last input: 00:02:00"));
         Assert.That(status, Does.Contain("Pipedream: Configured - Test Status"));
+        Assert.That(status, Does.Contain("Pending submissions: 5"));
     }
 
     [Test]
@@ -179,6 +195,8 @@ public class ActivityLoggerTests
             .Returns(ActivityStatus.Inactive);
         _pipedreamClientMock.Setup(p => p.GetConfigurationStatus())
             .Returns("Not configured");
+        _backgroundTaskQueueMock.Setup(q => q.Count)
+            .Returns(0);
 
         _activityLogger = CreateActivityLogger();
 
@@ -189,6 +207,7 @@ public class ActivityLoggerTests
         Assert.That(status, Does.Contain("Current Status: Inactive"));
         Assert.That(status, Does.Contain("Time since last input: Never"));
         Assert.That(status, Does.Contain("Pipedream: Not configured"));
+        Assert.That(status, Does.Contain("Pending submissions: 0"));
     }
 
     [Test]
