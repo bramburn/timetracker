@@ -7,9 +7,9 @@ namespace TimeTracker.DesktopApp.Tests;
 [TestFixture]
 public class PipedreamClientTests
 {
-    private Mock<ILogger<PipedreamClient>> _loggerMock;
-    private Mock<IConfiguration> _configurationMock;
-    private PipedreamClient _pipedreamClient;
+    private Mock<ILogger<PipedreamClient>> _loggerMock = null!;
+    private Mock<IConfiguration> _configurationMock = null!;
+    private PipedreamClient? _pipedreamClient;
 
     [SetUp]
     public void SetUp()
@@ -50,7 +50,7 @@ public class PipedreamClientTests
     {
         // Arrange
         _configurationMock.Setup(c => c["TimeTracker:PipedreamEndpointUrl"])
-            .Returns((string)null);
+            .Returns((string?)null);
 
         // Act
         _pipedreamClient = new PipedreamClient(_configurationMock.Object, _loggerMock.Object);
@@ -80,7 +80,7 @@ public class PipedreamClientTests
     {
         // Arrange
         _configurationMock.Setup(c => c["TimeTracker:PipedreamEndpointUrl"])
-            .Returns((string)null);
+            .Returns((string?)null);
         _pipedreamClient = new PipedreamClient(_configurationMock.Object, _loggerMock.Object);
 
         var activityData = new ActivityDataModel
@@ -123,7 +123,7 @@ public class PipedreamClientTests
     {
         // Arrange
         _configurationMock.Setup(c => c["TimeTracker:PipedreamEndpointUrl"])
-            .Returns((string)null);
+            .Returns((string?)null);
         _pipedreamClient = new PipedreamClient(_configurationMock.Object, _loggerMock.Object);
 
         // Act
@@ -176,7 +176,7 @@ public class PipedreamClientTests
     {
         // Arrange
         _configurationMock.Setup(c => c["TimeTracker:PipedreamEndpointUrl"])
-            .Returns((string)null);
+            .Returns((string?)null);
         _pipedreamClient = new PipedreamClient(_configurationMock.Object, _loggerMock.Object);
 
         // Act

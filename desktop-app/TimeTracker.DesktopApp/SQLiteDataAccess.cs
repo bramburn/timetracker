@@ -1,6 +1,7 @@
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using System.Text;
+using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
@@ -8,7 +9,7 @@ namespace TimeTracker.DesktopApp;
 /// Handles all interactions with the local SQLite database for activity logging.
 /// Manages database creation, schema initialization, and data insertion operations.
 /// </summary>
-public class SQLiteDataAccess : IDisposable
+public class SQLiteDataAccess : IDataAccess
 {
     private readonly string _connectionString;
     private readonly ILogger<SQLiteDataAccess> _logger;

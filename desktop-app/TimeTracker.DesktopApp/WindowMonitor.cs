@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using System.Security.Principal;
+using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
@@ -8,13 +9,13 @@ namespace TimeTracker.DesktopApp;
 /// Monitors active window changes and captures window title and associated process information.
 /// Uses Win32 APIs to poll for foreground window changes and detects when the user switches applications.
 /// </summary>
-public class WindowMonitor : IDisposable
+public class WindowMonitor : IWindowMonitor
 {
     private readonly ILogger<WindowMonitor> _logger;
     private readonly Timer _monitoringTimer;
     private readonly int _monitoringIntervalMs;
     private readonly string _currentUsername;
-    
+
     private ActivityDataModel? _lastActivity;
     private bool _disposed = false;
 
@@ -25,10 +26,10 @@ public class WindowMonitor : IDisposable
     {
         _logger = logger;
         _monitoringIntervalMs = configuration.GetValue<int>("TimeTracker:WindowMonitoringIntervalMs", 1000);
-        
+
         // Capture current Windows username
         _currentUsername = GetCurrentUsername();
-        _logger.LogInformation("WindowMonitor initialized for user: {Username}, monitoring interval: {Interval}ms", 
+        _logger.LogInformation("WindowMonitor initialized for user: {Username}, monitoring interval: {Interval}ms",
             _currentUsername, _monitoringIntervalMs);
 
         // Initialize monitoring timer
@@ -63,12 +64,12 @@ public class WindowMonitor : IDisposable
         try
         {
             var currentActivity = CaptureCurrentWindowActivity();
-            
+
             // Check if there's a significant change from the last activity
             if (currentActivity != null && currentActivity.HasSignificantChanges(_lastActivity))
             {
                 _logger.LogDebug("Window change detected: {Activity}", currentActivity.ToString());
-                
+
                 // Update last activity and notify listeners
                 _lastActivity = currentActivity.Clone();
                 WindowChanged?.Invoke(currentActivity);

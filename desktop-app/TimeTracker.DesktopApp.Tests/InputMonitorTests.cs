@@ -7,9 +7,9 @@ namespace TimeTracker.DesktopApp.Tests;
 [TestFixture]
 public class InputMonitorTests
 {
-    private Mock<ILogger<InputMonitor>> _loggerMock;
-    private Mock<IConfiguration> _configurationMock;
-    private InputMonitor _inputMonitor;
+    private Mock<ILogger<InputMonitor>> _loggerMock = null!;
+    private Mock<IConfiguration> _configurationMock = null!;
+    private InputMonitor? _inputMonitor;
 
     [SetUp]
     public void SetUp()

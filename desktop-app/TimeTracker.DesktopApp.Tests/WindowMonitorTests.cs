@@ -7,9 +7,9 @@ namespace TimeTracker.DesktopApp.Tests;
 [TestFixture]
 public class WindowMonitorTests
 {
-    private Mock<ILogger<WindowMonitor>> _loggerMock;
-    private Mock<IConfiguration> _configurationMock;
-    private WindowMonitor _windowMonitor;
+    private Mock<ILogger<WindowMonitor>> _loggerMock = null!;
+    private Mock<IConfiguration> _configurationMock = null!;
+    private WindowMonitor? _windowMonitor;
 
     [SetUp]
     public void SetUp()
@@ -181,7 +181,7 @@ public class WindowMonitorTests
             .Returns(1000);
         _windowMonitor = new WindowMonitor(_configurationMock.Object, _loggerMock.Object);
 
-        void EventHandler(ActivityDataModel activity) { }
+        void EventHandler(ActivityDataModel? activity) { }
 
         // Act & Assert - Should not throw
         _windowMonitor.WindowChanged += EventHandler;

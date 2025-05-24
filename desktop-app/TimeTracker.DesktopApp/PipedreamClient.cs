@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
@@ -10,7 +11,7 @@ namespace TimeTracker.DesktopApp;
 /// Manages data transmission to the Pipedream endpoint for testing purposes.
 /// Handles JSON serialization, HTTP communication, and robust error handling with retry logic.
 /// </summary>
-public class PipedreamClient : IDisposable
+public class PipedreamClient : IPipedreamClient
 {
     private readonly HttpClient _httpClient;
     private readonly ILogger<PipedreamClient> _logger;
@@ -29,7 +30,7 @@ public class PipedreamClient : IDisposable
     {
         _logger = logger;
         _httpClient = new HttpClient();
-        
+
         // Configure HTTP client
         _httpClient.Timeout = TimeSpan.FromSeconds(30);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "TimeTracker.DesktopApp/1.0");
@@ -126,7 +127,7 @@ public class PipedreamClient : IDisposable
             else
             {
                 var responseContent = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning("Pipedream submission failed. Status: {StatusCode}, Response: {Response}", 
+                _logger.LogWarning("Pipedream submission failed. Status: {StatusCode}, Response: {Response}",
                     response.StatusCode, responseContent);
                 return false;
             }

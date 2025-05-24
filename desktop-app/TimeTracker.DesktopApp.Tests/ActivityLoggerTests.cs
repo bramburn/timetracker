@@ -6,12 +6,12 @@ namespace TimeTracker.DesktopApp.Tests;
 [TestFixture]
 public class ActivityLoggerTests
 {
-    private Mock<ILogger<ActivityLogger>> _loggerMock;
-    private Mock<SQLiteDataAccess> _dataAccessMock;
-    private Mock<PipedreamClient> _pipedreamClientMock;
-    private Mock<WindowMonitor> _windowMonitorMock;
-    private Mock<InputMonitor> _inputMonitorMock;
-    private ActivityLogger _activityLogger;
+    private Mock<ILogger<ActivityLogger>> _loggerMock = null!;
+    private Mock<SQLiteDataAccess> _dataAccessMock = null!;
+    private Mock<PipedreamClient> _pipedreamClientMock = null!;
+    private Mock<WindowMonitor> _windowMonitorMock = null!;
+    private Mock<InputMonitor> _inputMonitorMock = null!;
+    private ActivityLogger? _activityLogger;
 
     [SetUp]
     public void SetUp()
@@ -56,8 +56,8 @@ public class ActivityLoggerTests
         _pipedreamClientMock.Setup(p => p.TestConnectionAsync())
             .ReturnsAsync(true);
         _windowMonitorMock.Setup(w => w.GetCurrentActivity())
-            .Returns((ActivityDataModel)null);
-        
+            .Returns((ActivityDataModel?)null);
+
         _activityLogger = CreateActivityLogger();
 
         // Act
@@ -115,13 +115,13 @@ public class ActivityLoggerTests
     }
 
     [Test]
-    public async Task StopAsync_StopsMonitoringComponents()
+    public void Stop_StopsMonitoringComponents()
     {
         // Arrange
         _activityLogger = CreateActivityLogger();
 
         // Act
-        await _activityLogger.StopAsync();
+        _activityLogger.Stop();
 
         // Assert
         _windowMonitorMock.Verify(w => w.Stop(), Times.Once);
@@ -129,17 +129,17 @@ public class ActivityLoggerTests
     }
 
     [Test]
-    public async Task StopAsync_DisposedLogger_LogsWarning()
+    public void Stop_DisposedLogger_LogsWarning()
     {
         // Arrange
         _activityLogger = CreateActivityLogger();
         _activityLogger.Dispose();
 
         // Act
-        await _activityLogger.StopAsync();
+        _activityLogger.Stop();
 
         // Assert - Should not throw and should log warning
-        Assert.Pass("StopAsync completed without throwing on disposed logger");
+        Assert.Pass("Stop completed without throwing on disposed logger");
     }
 
     [Test]
@@ -215,13 +215,13 @@ public class ActivityLoggerTests
         _pipedreamClientMock.Setup(p => p.TestConnectionAsync())
             .ReturnsAsync(false);
         _windowMonitorMock.Setup(w => w.GetCurrentActivity())
-            .Returns((ActivityDataModel)null);
+            .Returns((ActivityDataModel?)null);
 
         _activityLogger = CreateActivityLogger();
 
         // Act & Assert - Should not throw even if Pipedream connection fails
         Assert.DoesNotThrowAsync(async () => await _activityLogger.StartAsync());
-        
+
         _windowMonitorMock.Verify(w => w.Start(), Times.Once);
         _inputMonitorMock.Verify(i => i.Start(), Times.Once);
     }

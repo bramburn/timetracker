@@ -33,7 +33,7 @@ public class SQLiteDataAccessTests
     {
         // Assert
         Assert.That(File.Exists(_testDatabasePath), Is.True);
-        
+
         // Verify we can get count (table exists)
         var count = await _dataAccess.GetActivityCountAsync();
         Assert.That(count, Is.EqualTo(0));
@@ -65,7 +65,7 @@ public class SQLiteDataAccessTests
     public async Task InsertActivityAsync_NullData_ReturnsFalse()
     {
         // Act
-        var result = await _dataAccess.InsertActivityAsync(null);
+        var result = await _dataAccess.InsertActivityAsync(null!);
 
         // Assert
         Assert.That(result, Is.False);
