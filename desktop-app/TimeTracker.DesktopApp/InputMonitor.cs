@@ -14,7 +14,7 @@ public class InputMonitor : IInputMonitor
 {
     private readonly ILogger<InputMonitor> _logger;
     private readonly int _activityTimeoutMs;
-    private readonly Timer _activityTimer;
+    private readonly System.Threading.Timer _activityTimer;
 
     private IntPtr _keyboardHook = IntPtr.Zero;
     private IntPtr _mouseHook = IntPtr.Zero;
@@ -39,7 +39,7 @@ public class InputMonitor : IInputMonitor
         _mouseProc = MouseHookProc;
 
         // Initialize activity timeout timer
-        _activityTimer = new Timer(CheckActivityTimeout, null,
+        _activityTimer = new System.Threading.Timer(CheckActivityTimeout, null,
             TimeSpan.FromMilliseconds(_activityTimeoutMs),
             TimeSpan.FromMilliseconds(_activityTimeoutMs));
 

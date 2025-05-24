@@ -15,6 +15,32 @@ public class TestConfiguration : IConfiguration
         _data = data ?? new Dictionary<string, string>();
     }
 
+    /// <summary>
+    /// Creates a test configuration with default values for TimeTracker
+    /// </summary>
+    public static TestConfiguration Create(Dictionary<string, string>? additionalData = null)
+    {
+        var defaultData = new Dictionary<string, string>
+        {
+            ["TimeTracker:ActivityTimeoutMs"] = "30000",
+            ["TimeTracker:WindowMonitoringIntervalMs"] = "1000",
+            ["TimeTracker:DatabasePath"] = "TestTimeTracker.db",
+            ["TimeTracker:PipedreamEndpointUrl"] = "https://test.example.com",
+            ["TimeTracker:RetryAttempts"] = "3",
+            ["TimeTracker:RetryDelayMs"] = "5000"
+        };
+
+        if (additionalData != null)
+        {
+            foreach (var kvp in additionalData)
+            {
+                defaultData[kvp.Key] = kvp.Value;
+            }
+        }
+
+        return new TestConfiguration(defaultData);
+    }
+
     public string? this[string key]
     {
         get => _data.TryGetValue(key, out var value) ? value : null;

@@ -12,7 +12,7 @@ namespace TimeTracker.DesktopApp;
 public class WindowMonitor : IWindowMonitor
 {
     private readonly ILogger<WindowMonitor> _logger;
-    private readonly Timer _monitoringTimer;
+    private readonly System.Threading.Timer _monitoringTimer;
     private readonly int _monitoringIntervalMs;
     private readonly string _currentUsername;
 
@@ -20,7 +20,7 @@ public class WindowMonitor : IWindowMonitor
     private bool _disposed = false;
 
     // Event to notify when window changes are detected
-    public event Action<ActivityDataModel>? WindowChanged;
+    public event Action<ActivityDataModel?>? WindowChanged;
 
     public WindowMonitor(IConfiguration configuration, ILogger<WindowMonitor> logger)
     {
@@ -33,7 +33,7 @@ public class WindowMonitor : IWindowMonitor
             _currentUsername, _monitoringIntervalMs);
 
         // Initialize monitoring timer
-        _monitoringTimer = new Timer(MonitorActiveWindow, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(_monitoringIntervalMs));
+        _monitoringTimer = new System.Threading.Timer(MonitorActiveWindow, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(_monitoringIntervalMs));
     }
 
     /// <summary>

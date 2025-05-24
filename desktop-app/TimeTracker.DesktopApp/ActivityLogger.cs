@@ -105,15 +105,18 @@ public class ActivityLogger : IDisposable
     /// Event handler for window changes detected by WindowMonitor
     /// </summary>
     /// <param name="activityData">The new window activity data</param>
-    private async void OnWindowChanged(ActivityDataModel activityData)
+    private async void OnWindowChanged(ActivityDataModel? activityData)
     {
         try
         {
-            // Update activity status from InputMonitor
-            activityData.ActivityStatus = _inputMonitor.GetCurrentActivityStatus();
+            if (activityData != null)
+            {
+                // Update activity status from InputMonitor
+                activityData.ActivityStatus = _inputMonitor.GetCurrentActivityStatus();
 
-            // Log the activity
-            await LogActivityAsync(activityData);
+                // Log the activity
+                await LogActivityAsync(activityData);
+            }
         }
         catch (Exception ex)
         {

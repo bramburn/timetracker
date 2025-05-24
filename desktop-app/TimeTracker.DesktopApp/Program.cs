@@ -3,6 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
+using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
@@ -93,9 +94,15 @@ public class Program
         // Register Pipedream client
         services.AddSingleton<PipedreamClient>();
 
-        // Register monitoring components
-        services.AddSingleton<WindowMonitor>();
-        services.AddSingleton<InputMonitor>();
+        // Register optimized monitoring components
+        services.AddSingleton<IWindowMonitor, OptimizedWindowMonitor>();
+        services.AddSingleton<IInputMonitor, OptimizedInputMonitor>();
+
+        // Register data access interface
+        services.AddSingleton<IDataAccess>(provider => provider.GetRequiredService<SQLiteDataAccess>());
+
+        // Register Pipedream client interface
+        services.AddSingleton<IPipedreamClient>(provider => provider.GetRequiredService<PipedreamClient>());
 
         // Register activity logger
         services.AddSingleton<ActivityLogger>();

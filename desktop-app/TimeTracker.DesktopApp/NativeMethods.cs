@@ -36,6 +36,38 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     internal static extern IntPtr GetModuleHandle(string lpModuleName);
 
+    // SetWinEventHook API for optimized window monitoring
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax,
+        IntPtr hmodWinEventProc, WinEventDelegate lpfnWinEventProc, uint idProcess,
+        uint idThread, uint dwFlags);
+
+    [DllImport("user32.dll")]
+    internal static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+    // WinEvent delegate for window change notifications
+    internal delegate void WinEventDelegate(IntPtr hWinEventHook, uint eventType,
+        IntPtr hwnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime);
+
+    // WinEvent constants
+    internal const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+    internal const uint WINEVENT_OUTOFCONTEXT = 0x0000;
+
+    // Raw Input API for optimized input monitoring
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] pRawInputDevices,
+        uint uiNumDevices, uint cbSize);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    internal static extern uint GetRawInputData(IntPtr hRawInput, uint uiCommand,
+        IntPtr pData, ref uint pcbSize, uint cbSizeHeader);
+
+    // Raw Input constants
+    internal const int RIDEV_INPUTSINK = 0x00000100;
+    internal const int RIDEV_REMOVE = 0x00000001;
+    internal const int WM_INPUT = 0x00FF;
+    internal const int RID_INPUT = 0x10000003;
+
     // Hook types
     internal const int WH_KEYBOARD_LL = 13;
     internal const int WH_MOUSE_LL = 14;
@@ -94,6 +126,18 @@ internal static class NativeMethods
     {
         internal int x;
         internal int y;
+    }
+
+    /// <summary>
+    /// Structure for Raw Input device registration
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct RAWINPUTDEVICE
+    {
+        internal ushort UsagePage;
+        internal ushort Usage;
+        internal uint Flags;
+        internal IntPtr Target;
     }
 
     /// <summary>
