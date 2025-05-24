@@ -23,9 +23,26 @@ public class SQLiteDataAccessIntegrationTests
     public void TearDown()
     {
         _dataAccess?.Dispose();
+
+        // Wait a bit for any pending operations to complete
+        Thread.Sleep(100);
+
+        // Force garbage collection to ensure connections are closed
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        // Try to delete the file, but don't fail the test if it's still locked
         if (File.Exists(_testDatabasePath))
         {
-            File.Delete(_testDatabasePath);
+            try
+            {
+                File.Delete(_testDatabasePath);
+            }
+            catch (IOException)
+            {
+                // File is still locked, which is acceptable for test cleanup
+                // The temp directory will be cleaned up eventually
+            }
         }
     }
 
@@ -75,7 +92,7 @@ public class SQLiteDataAccessIntegrationTests
         // Assert - Verify recent activities retrieval
         var recentActivities = await _dataAccess.GetRecentActivitiesAsync(2);
         Assert.That(recentActivities.Count, Is.EqualTo(2));
-        
+
         // Verify order (most recent first)
         Assert.That(recentActivities[0].ActiveWindowTitle, Is.EqualTo("Notepad - notes.txt"));
         Assert.That(recentActivities[1].ActiveWindowTitle, Is.EqualTo("Google Chrome - TimeTracker Documentation"));
@@ -83,7 +100,7 @@ public class SQLiteDataAccessIntegrationTests
         // Assert - Verify all activities retrieval
         var allActivities = await _dataAccess.GetRecentActivitiesAsync(10);
         Assert.That(allActivities.Count, Is.EqualTo(3));
-        
+
         // Verify all data integrity
         Assert.That(allActivities[0].WindowsUsername, Is.EqualTo("IntegrationTestUser1"));
         Assert.That(allActivities[1].ApplicationProcessName, Is.EqualTo("chrome.exe"));
@@ -149,7 +166,7 @@ public class SQLiteDataAccessIntegrationTests
 
         // Act
         var insertResult = await _dataAccess.InsertActivityAsync(activityWithSpecialChars);
-        
+
         // Assert
         Assert.That(insertResult, Is.True);
 
@@ -176,7 +193,7 @@ public class SQLiteDataAccessIntegrationTests
             var task = Task.Run(async () =>
             {
                 await Task.Delay(random.Next(0, 100)); // Random delay to simulate real-world timing
-                
+
                 var activity = new ActivityDataModel
                 {
                     Timestamp = DateTime.UtcNow.AddMilliseconds(activityIndex),
@@ -188,7 +205,7 @@ public class SQLiteDataAccessIntegrationTests
 
                 return await _dataAccess.InsertActivityAsync(activity);
             });
-            
+
             tasks.Add(task);
         }
 
@@ -255,7 +272,7 @@ public class SQLiteDataAccessIntegrationTests
         Assert.That(retrievedActivities.Count, Is.EqualTo(1));
 
         var retrievedActivity = retrievedActivities[0];
-        
+
         // SQLite stores datetime with second precision, so we compare with tolerance
         var timeDifference = Math.Abs((retrievedActivity.Timestamp - preciseTimestamp).TotalSeconds);
         Assert.That(timeDifference, Is.LessThan(1), "Timestamp precision not preserved within acceptable range");

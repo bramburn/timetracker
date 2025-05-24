@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
@@ -10,19 +11,19 @@ namespace TimeTracker.DesktopApp;
 public class ActivityLogger : IDisposable
 {
     private readonly ILogger<ActivityLogger> _logger;
-    private readonly SQLiteDataAccess _dataAccess;
-    private readonly PipedreamClient _pipedreamClient;
-    private readonly WindowMonitor _windowMonitor;
-    private readonly InputMonitor _inputMonitor;
-    
+    private readonly IDataAccess _dataAccess;
+    private readonly IPipedreamClient _pipedreamClient;
+    private readonly IWindowMonitor _windowMonitor;
+    private readonly IInputMonitor _inputMonitor;
+
     private ActivityDataModel? _currentActivity;
     private bool _disposed = false;
 
     public ActivityLogger(
-        SQLiteDataAccess dataAccess,
-        PipedreamClient pipedreamClient,
-        WindowMonitor windowMonitor,
-        InputMonitor inputMonitor,
+        IDataAccess dataAccess,
+        IPipedreamClient pipedreamClient,
+        IWindowMonitor windowMonitor,
+        IInputMonitor inputMonitor,
         ILogger<ActivityLogger> logger)
     {
         _logger = logger;
@@ -110,7 +111,7 @@ public class ActivityLogger : IDisposable
         {
             // Update activity status from InputMonitor
             activityData.ActivityStatus = _inputMonitor.GetCurrentActivityStatus();
-            
+
             // Log the activity
             await LogActivityAsync(activityData);
         }
@@ -263,11 +264,11 @@ public class ActivityLogger : IDisposable
         if (!_disposed)
         {
             Stop();
-            
+
             // Unsubscribe from events
             _windowMonitor.WindowChanged -= OnWindowChanged;
             _inputMonitor.ActivityStatusChanged -= OnActivityStatusChanged;
-            
+
             _disposed = true;
             _logger.LogInformation("ActivityLogger disposed");
         }

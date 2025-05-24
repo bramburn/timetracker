@@ -22,9 +22,26 @@ public class SQLiteDataAccessTests
     public void TearDown()
     {
         _dataAccess?.Dispose();
+
+        // Wait a bit for any pending operations to complete
+        Thread.Sleep(100);
+
+        // Force garbage collection to ensure connections are closed
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+
+        // Try to delete the file, but don't fail the test if it's still locked
         if (File.Exists(_testDatabasePath))
         {
-            File.Delete(_testDatabasePath);
+            try
+            {
+                File.Delete(_testDatabasePath);
+            }
+            catch (IOException)
+            {
+                // File is still locked, which is acceptable for test cleanup
+                // The temp directory will be cleaned up eventually
+            }
         }
     }
 

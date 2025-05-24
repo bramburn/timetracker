@@ -10,7 +10,7 @@ namespace TimeTracker.DesktopApp;
 /// Uses low-level Windows hooks to detect input without capturing specific content.
 /// Provides binary active/inactive status based on input presence within a timeout period.
 /// </summary>
-public class InputMonitor : IDisposable
+public class InputMonitor : IInputMonitor
 {
     private readonly ILogger<InputMonitor> _logger;
     private readonly int _activityTimeoutMs;

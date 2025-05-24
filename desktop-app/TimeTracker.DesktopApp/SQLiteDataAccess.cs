@@ -82,6 +82,12 @@ public class SQLiteDataAccess : IDataAccess
             return false;
         }
 
+        if (activityData == null)
+        {
+            _logger.LogWarning("Attempted to insert null activity data");
+            return false;
+        }
+
         try
         {
             using var connection = new SqliteConnection(_connectionString);
