@@ -8,6 +8,7 @@ namespace TimeTracker.DesktopApp;
 
 /// <summary>
 /// Optimized input monitor that uses Raw Input API for low-latency input detection.
+/// Falls back to GetLastInputInfo polling when Raw Input API is not available (e.g., in Windows Services).
 /// Replaces low-level hooks with a more efficient, asynchronous approach using
 /// a buffered queue and dedicated processing thread with debouncing.
 /// </summary>
@@ -17,8 +18,13 @@ public class OptimizedInputMonitor : IInputMonitor
     private readonly int _activityTimeoutMs;
     private readonly System.Threading.Timer _activityTimeoutTimer;
 
-    // Raw Input related
-    private readonly HiddenInputWindow _hiddenInputWindow;
+    // Raw Input related (primary method)
+    private readonly HiddenInputWindow? _hiddenInputWindow;
+    private bool _rawInputAvailable = false;
+
+    // GetLastInputInfo fallback
+    private readonly System.Threading.Timer? _fallbackInputTimer;
+    private bool _usingFallbackMethod = false;
 
     // Buffered Queue related
     private readonly BlockingCollection<InputEvent> _inputQueue = new(200); // MaxQueueSize = 200
@@ -31,8 +37,9 @@ public class OptimizedInputMonitor : IInputMonitor
     private ActivityStatus _currentActivityStatus = ActivityStatus.Inactive;
     private bool _disposed = false;
 
-    // Debouncing configuration
-    private const int DebounceThresholdMs = 50; // Ignore events less than 50ms apart
+    // Debouncing configuration (configurable)
+    private readonly int _debounceThresholdMs;
+    private readonly int _fallbackCheckIntervalMs;
 
     // Event to notify when activity status changes
     public event Action<ActivityStatus>? ActivityStatusChanged;
@@ -40,10 +47,26 @@ public class OptimizedInputMonitor : IInputMonitor
     public OptimizedInputMonitor(IConfiguration configuration, ILogger<OptimizedInputMonitor> logger)
     {
         _logger = logger;
-        _activityTimeoutMs = configuration.GetValue<int>("TimeTracker:ActivityTimeoutMs", 30000);
+        _activityTimeoutMs = configuration.GetValue<int>("TimeTracker:ActivityTimeoutMs", 60000);
+        _debounceThresholdMs = configuration.GetValue<int>("TimeTracker:DebounceThresholdMs", 100);
+        _fallbackCheckIntervalMs = configuration.GetValue<int>("TimeTracker:FallbackCheckIntervalMs", 10000);
 
-        _hiddenInputWindow = new HiddenInputWindow(_logger);
-        _hiddenInputWindow.RawInputDetected += OnRawInputDetected;
+        // Try to initialize Raw Input first
+        try
+        {
+            _hiddenInputWindow = new HiddenInputWindow(_logger);
+            _hiddenInputWindow.RawInputDetected += OnRawInputDetected;
+            _logger.LogDebug("Raw Input window initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to initialize Raw Input window, will use GetLastInputInfo fallback");
+            _hiddenInputWindow = null;
+        }
+
+        // Initialize GetLastInputInfo fallback timer
+        _fallbackInputTimer = new System.Threading.Timer(CheckLastInputInfo, null,
+            Timeout.Infinite, Timeout.Infinite); // Start disabled
 
         // Initialize activity timeout timer
         _activityTimeoutTimer = new System.Threading.Timer(CheckActivityTimeout, null,
@@ -54,7 +77,7 @@ public class OptimizedInputMonitor : IInputMonitor
     }
 
     /// <summary>
-    /// Starts the optimized input monitoring using Raw Input API
+    /// Starts the optimized input monitoring using Raw Input API or GetLastInputInfo fallback
     /// </summary>
     public void Start()
     {
@@ -64,50 +87,131 @@ public class OptimizedInputMonitor : IInputMonitor
             return;
         }
 
+        // Try Raw Input API first
+        if (_hiddenInputWindow != null)
+        {
+            try
+            {
+                // Register Raw Input Devices
+                var devices = new[]
+                {
+                    new NativeMethods.RAWINPUTDEVICE
+                    {
+                        UsagePage = 0x01, // Generic desktop
+                        Usage = 0x06,     // Keyboard
+                        Flags = NativeMethods.RIDEV_INPUTSINK,
+                        Target = _hiddenInputWindow.Handle
+                    },
+                    new NativeMethods.RAWINPUTDEVICE
+                    {
+                        UsagePage = 0x01, // Generic desktop
+                        Usage = 0x02,     // Mouse
+                        Flags = NativeMethods.RIDEV_INPUTSINK,
+                        Target = _hiddenInputWindow.Handle
+                    }
+                };
+
+                if (NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length,
+                    (uint)Marshal.SizeOf(typeof(NativeMethods.RAWINPUTDEVICE))))
+                {
+                    _rawInputAvailable = true;
+                    _logger.LogInformation("Raw Input monitoring started successfully");
+
+                    // Start background processing thread for Raw Input
+                    _processingThread = new Thread(ProcessInputQueue)
+                    {
+                        Priority = ThreadPriority.AboveNormal,
+                        IsBackground = true,
+                        Name = "InputProcessingThread"
+                    };
+                    _processingThread.Start();
+                    _logger.LogInformation("Input processing thread started");
+                    return; // Success with Raw Input
+                }
+                else
+                {
+                    var error = Marshal.GetLastWin32Error();
+                    _logger.LogWarning("Failed to register raw input devices. Error code: {ErrorCode}. Falling back to GetLastInputInfo", error);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Raw Input API failed. Falling back to GetLastInputInfo");
+            }
+        }
+
+        // Fallback to GetLastInputInfo
+        StartFallbackMethod();
+    }
+
+    /// <summary>
+    /// Starts the GetLastInputInfo fallback method
+    /// </summary>
+    private void StartFallbackMethod()
+    {
         try
         {
-            // Register Raw Input Devices
-            var devices = new[]
-            {
-                new NativeMethods.RAWINPUTDEVICE
-                {
-                    UsagePage = 0x01, // Generic desktop
-                    Usage = 0x06,     // Keyboard
-                    Flags = NativeMethods.RIDEV_INPUTSINK,
-                    Target = _hiddenInputWindow.Handle
-                },
-                new NativeMethods.RAWINPUTDEVICE
-                {
-                    UsagePage = 0x01, // Generic desktop
-                    Usage = 0x02,     // Mouse
-                    Flags = NativeMethods.RIDEV_INPUTSINK,
-                    Target = _hiddenInputWindow.Handle
-                }
-            };
+            _usingFallbackMethod = true;
 
-            if (!NativeMethods.RegisterRawInputDevices(devices, (uint)devices.Length,
-                (uint)Marshal.SizeOf(typeof(NativeMethods.RAWINPUTDEVICE))))
-            {
-                var error = Marshal.GetLastWin32Error();
-                _logger.LogError("Failed to register raw input devices. Error code: {ErrorCode}", error);
-                throw new InvalidOperationException($"Failed to register raw input devices. Error: {error}");
-            }
-            _logger.LogInformation("Raw Input monitoring started.");
-
-            // Start background processing thread
+            // Start background processing thread for fallback events
             _processingThread = new Thread(ProcessInputQueue)
             {
-                Priority = ThreadPriority.AboveNormal, // Set high priority for responsiveness
+                Priority = ThreadPriority.Normal,
                 IsBackground = true,
-                Name = "InputProcessingThread"
+                Name = "FallbackInputProcessingThread"
             };
             _processingThread.Start();
-            _logger.LogInformation("Input processing thread started.");
+
+            _fallbackInputTimer?.Change(TimeSpan.Zero, TimeSpan.FromMilliseconds(_fallbackCheckIntervalMs));
+            _logger.LogInformation("GetLastInputInfo fallback monitoring started (checking every {Interval}ms)", _fallbackCheckIntervalMs);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to start optimized input monitoring");
+            _logger.LogError(ex, "Failed to start GetLastInputInfo fallback method");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Timer callback for GetLastInputInfo fallback method
+    /// </summary>
+    private void CheckLastInputInfo(object? state)
+    {
+        if (_disposed || !_usingFallbackMethod) return;
+
+        try
+        {
+            var inputInfo = new NativeMethods.LASTINPUTINFO
+            {
+                cbSize = (uint)Marshal.SizeOf<NativeMethods.LASTINPUTINFO>()
+            };
+
+            if (NativeMethods.GetLastInputInfo(ref inputInfo))
+            {
+                // Calculate the actual time of last input
+                var ticksSinceLastInput = Environment.TickCount - inputInfo.dwTime;
+                var lastInputTime = DateTime.UtcNow.AddMilliseconds(-ticksSinceLastInput);
+
+                // Check if this is newer than our last recorded input
+                if (lastInputTime > _lastInputTime)
+                {
+                    _logger.LogDebug("GetLastInputInfo detected new input at {LastInputTime}", lastInputTime);
+
+                    // Simulate an input event
+                    if (!_inputQueue.IsAddingCompleted)
+                    {
+                        _inputQueue.Add(new InputEvent(lastInputTime, InputType.Generic));
+                    }
+                }
+            }
+            else
+            {
+                _logger.LogDebug("GetLastInputInfo call failed");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error in GetLastInputInfo fallback check");
         }
     }
 
@@ -120,11 +224,18 @@ public class OptimizedInputMonitor : IInputMonitor
 
         try
         {
+            // Stop fallback timer
+            _fallbackInputTimer?.Change(Timeout.Infinite, Timeout.Infinite);
+            _usingFallbackMethod = false;
+
+            // Stop processing thread
             _cts.Cancel(); // Signal processing thread to stop
             _processingThread?.Join(500); // Wait for thread to finish
 
             _activityTimeoutTimer?.Change(Timeout.Infinite, Timeout.Infinite);
-            _logger.LogInformation("Optimized input monitoring stopped.");
+
+            var method = _rawInputAvailable ? "Raw Input" : "GetLastInputInfo fallback";
+            _logger.LogInformation("Optimized input monitoring stopped (was using {Method})", method);
         }
         catch (Exception ex)
         {
@@ -194,7 +305,7 @@ public class OptimizedInputMonitor : IInputMonitor
     private void HandleInputEvent(InputEvent input)
     {
         // Debouncing: Ignore events too close to the last processed one
-        if ((input.Timestamp - _lastProcessedInputTime).TotalMilliseconds < DebounceThresholdMs)
+        if ((input.Timestamp - _lastProcessedInputTime).TotalMilliseconds < _debounceThresholdMs)
         {
             _logger.LogTrace("Debounced input event at {Timestamp}", input.Timestamp);
             return;
@@ -263,6 +374,7 @@ public class OptimizedInputMonitor : IInputMonitor
         {
             Stop(); // Stop monitoring and processing thread
             _activityTimeoutTimer?.Dispose();
+            _fallbackInputTimer?.Dispose();
             _inputQueue.Dispose();
             _cts.Dispose();
             _hiddenInputWindow?.Dispose(); // Dispose the hidden window

@@ -13,31 +13,34 @@ namespace TimeTracker.DesktopApp.Tests;
 [TestFixture]
 public class Phase12OptimizationIntegrationTests
 {
-    private string _testDatabasePath = null!;
     private IConfiguration _configuration = null!;
-    private Mock<ILogger<OptimizedSQLiteDataAccess>> _dataAccessLoggerMock = null!;
+    private Mock<ILogger<SqlServerDataAccess>> _dataAccessLoggerMock = null!;
     private Mock<ILogger<ActivityLogger>> _activityLoggerMock = null!;
     private Mock<IPipedreamClient> _pipedreamClientMock = null!;
     private Mock<IWindowMonitor> _windowMonitorMock = null!;
     private Mock<IInputMonitor> _inputMonitorMock = null!;
+    private string _testConnectionString = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _testDatabasePath = Path.Combine(Path.GetTempPath(), $"test_phase12_{Guid.NewGuid()}.db");
-        _dataAccessLoggerMock = new Mock<ILogger<OptimizedSQLiteDataAccess>>();
+        _dataAccessLoggerMock = new Mock<ILogger<SqlServerDataAccess>>();
         _activityLoggerMock = new Mock<ILogger<ActivityLogger>>();
         _pipedreamClientMock = new Mock<IPipedreamClient>();
         _windowMonitorMock = new Mock<IWindowMonitor>();
         _inputMonitorMock = new Mock<IInputMonitor>();
 
-        // Create test configuration with optimized settings
+        // Create test configuration with optimized settings for SQL Server
         _configuration = TestConfiguration.Create(new Dictionary<string, string>
         {
+            ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\MSSQLLocalDB;Database=TimeTrackerPhase12TestDB;Integrated Security=true;Connection Timeout=30;",
             ["TimeTracker:MaxBatchSize"] = "5",
             ["TimeTracker:BatchInsertIntervalMs"] = "500",
-            ["TimeTracker:MaxConcurrentSubmissions"] = "2"
+            ["TimeTracker:MaxConcurrentSubmissions"] = "2",
+            ["TimeTracker:EnableBulkOperations"] = "true"
         });
+
+        _testConnectionString = _configuration.GetConnectionString("DefaultConnection")!;
 
         // Setup mock behaviors
         _pipedreamClientMock.Setup(p => p.TestConnectionAsync()).ReturnsAsync(true);
@@ -53,16 +56,16 @@ public class Phase12OptimizationIntegrationTests
     public void TearDown()
     {
         // Clean up test database
-        if (File.Exists(_testDatabasePath))
+        try
         {
-            try
-            {
-                File.Delete(_testDatabasePath);
-            }
-            catch (IOException)
-            {
-                // Ignore cleanup errors
-            }
+            using var connection = new Microsoft.Data.SqlClient.SqlConnection(_testConnectionString);
+            connection.Open();
+            using var command = new Microsoft.Data.SqlClient.SqlCommand("DROP DATABASE IF EXISTS TimeTrackerPhase12TestDB", connection);
+            command.ExecuteNonQuery();
+        }
+        catch
+        {
+            // Ignore cleanup errors
         }
     }
 
@@ -71,10 +74,10 @@ public class Phase12OptimizationIntegrationTests
     {
         // Arrange
         using var backgroundTaskQueue = new BackgroundTaskQueue();
-        using var optimizedDataAccess = new OptimizedSQLiteDataAccess(_testDatabasePath, _configuration, _dataAccessLoggerMock.Object);
+        using var sqlServerDataAccess = new SqlServerDataAccess(_configuration, _dataAccessLoggerMock.Object);
 
         using var activityLogger = new ActivityLogger(
-            optimizedDataAccess,
+            sqlServerDataAccess,
             _pipedreamClientMock.Object,
             _windowMonitorMock.Object,
             _inputMonitorMock.Object,
@@ -107,7 +110,7 @@ public class Phase12OptimizationIntegrationTests
         await Task.Delay(1000);
 
         // Assert - Check that activities were stored in the database
-        var storedActivities = await optimizedDataAccess.GetRecentActivitiesAsync(10);
+        var storedActivities = await sqlServerDataAccess.GetRecentActivitiesAsync(10);
         Assert.That(storedActivities.Count, Is.EqualTo(5), "All activities should be stored in the database");
 
         // Verify activities are in correct order (most recent first)
@@ -115,7 +118,7 @@ public class Phase12OptimizationIntegrationTests
         Assert.That(storedActivities[4].ActiveWindowTitle, Is.EqualTo("Window 1"));
 
         // Verify total count
-        var totalCount = await optimizedDataAccess.GetActivityCountAsync();
+        var totalCount = await sqlServerDataAccess.GetActivityCountAsync();
         Assert.That(totalCount, Is.EqualTo(5));
 
         // Verify Pipedream submissions were attempted (background processing)
@@ -204,10 +207,10 @@ public class Phase12OptimizationIntegrationTests
     }
 
     [Test]
-    public async Task OptimizedSQLiteDataAccess_BatchProcessing_ReducesDatabaseOperations()
+    public async Task SqlServerDataAccess_BatchProcessing_ReducesDatabaseOperations()
     {
         // Arrange
-        using var dataAccess = new OptimizedSQLiteDataAccess(_testDatabasePath, _configuration, _dataAccessLoggerMock.Object);
+        using var dataAccess = new SqlServerDataAccess(_configuration, _dataAccessLoggerMock.Object);
         var startTime = DateTime.UtcNow;
 
         // Act - Insert multiple activities rapidly
@@ -237,10 +240,10 @@ public class Phase12OptimizationIntegrationTests
     {
         // Arrange
         using var backgroundTaskQueue = new BackgroundTaskQueue();
-        using var optimizedDataAccess = new OptimizedSQLiteDataAccess(_testDatabasePath, _configuration, _dataAccessLoggerMock.Object);
+        using var sqlServerDataAccess = new SqlServerDataAccess(_configuration, _dataAccessLoggerMock.Object);
 
         using var activityLogger = new ActivityLogger(
-            optimizedDataAccess,
+            sqlServerDataAccess,
             _pipedreamClientMock.Object,
             _windowMonitorMock.Object,
             _inputMonitorMock.Object,

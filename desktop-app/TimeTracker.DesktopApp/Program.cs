@@ -387,22 +387,9 @@ public class Program
         // Register background task queue
         services.AddSingleton<BackgroundTaskQueue>();
 
-        // Register optimized SQLite data access
-        services.AddSingleton<OptimizedSQLiteDataAccess>(provider =>
-        {
-            var logger = provider.GetRequiredService<ILogger<OptimizedSQLiteDataAccess>>();
-            var config = provider.GetRequiredService<IConfiguration>();
-            var databasePath = configuration["TimeTracker:DatabasePath"] ?? "TimeTracker.db";
-
-            // Ensure database path is absolute
-            if (!Path.IsPathRooted(databasePath))
-            {
-                var appDirectory = AppDomain.CurrentDomain.BaseDirectory;
-                databasePath = Path.Combine(appDirectory, databasePath);
-            }
-
-            return new OptimizedSQLiteDataAccess(databasePath, config, logger);
-        });
+        // Register SQL Server data access as the only database provider
+        services.AddSingleton<SqlServerDataAccess>();
+        services.AddSingleton<IDataAccess>(provider => provider.GetRequiredService<SqlServerDataAccess>());
 
         // Register Pipedream client
         services.AddSingleton<PipedreamClient>();
@@ -411,14 +398,14 @@ public class Program
         services.AddSingleton<IWindowMonitor, OptimizedWindowMonitor>();
         services.AddSingleton<IInputMonitor, OptimizedInputMonitor>();
 
-        // Register data access interface (using optimized implementation)
-        services.AddSingleton<IDataAccess>(provider => provider.GetRequiredService<OptimizedSQLiteDataAccess>());
-
         // Register Pipedream client interface
         services.AddSingleton<IPipedreamClient>(provider => provider.GetRequiredService<PipedreamClient>());
 
         // Register activity logger
         services.AddSingleton<ActivityLogger>();
+
+        // Register batch processor as hosted service
+        services.AddHostedService<BatchProcessor>();
     }
 }
 

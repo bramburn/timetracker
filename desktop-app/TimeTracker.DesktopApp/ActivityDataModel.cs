@@ -46,6 +46,18 @@ public class ActivityDataModel
     public IntPtr ActiveWindowHandle { get; set; } = IntPtr.Zero;
 
     /// <summary>
+    /// Indicates whether this record has been successfully synced to Pipedream
+    /// </summary>
+    [JsonIgnore]
+    public bool IsSynced { get; set; } = false;
+
+    /// <summary>
+    /// Unique identifier for the batch this record belongs to (for tracking sync operations)
+    /// </summary>
+    [JsonIgnore]
+    public Guid? BatchId { get; set; } = null;
+
+    /// <summary>
     /// Creates a copy of the current activity data model
     /// </summary>
     /// <returns>A new instance with the same property values</returns>
@@ -58,7 +70,9 @@ public class ActivityDataModel
             ActiveWindowTitle = this.ActiveWindowTitle,
             ApplicationProcessName = this.ApplicationProcessName,
             ActivityStatus = this.ActivityStatus,
-            ActiveWindowHandle = this.ActiveWindowHandle
+            ActiveWindowHandle = this.ActiveWindowHandle,
+            IsSynced = this.IsSynced,
+            BatchId = this.BatchId
         };
     }
 

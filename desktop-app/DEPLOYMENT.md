@@ -7,21 +7,28 @@ This guide covers the complete deployment workflow for the Internal Employee Act
 ### Prerequisites
 - Windows 10/11 (x64)
 - .NET 8 Runtime (or SDK for development)
+- **SQL Server Express LocalDB** (required for database operations)
 - Administrator privileges for installation
 - WiX Toolset v4+ (for building from source)
 
 ### Build and Install (Development)
 ```powershell
-# 1. Install WiX Toolset (if not already installed)
+# 1. Install SQL Server Express LocalDB (if not already installed)
+.\install-sqlserver-localdb.ps1
+
+# 2. Setup LocalDB instance
+.\setup-localdb.ps1
+
+# 3. Install WiX Toolset (if not already installed)
 dotnet tool install --global wix
 
-# 2. Navigate to desktop-app directory
+# 4. Navigate to desktop-app directory
 cd desktop-app
 
-# 3. Build the installer
+# 5. Build the installer
 .\build-installer-simple.ps1
 
-# 4. Install the service (requires Administrator)
+# 6. Install the service (requires Administrator)
 .\install-service.ps1
 ```
 
@@ -171,6 +178,16 @@ Error: Could not load file or assembly
 dotnet --list-runtimes
 ```
 
+#### 5. Database Connection Issues
+```
+Error: Cannot connect to SQL Server LocalDB
+```
+**Solutions**:
+- Verify SQL Server Express LocalDB is installed
+- Run the LocalDB setup script: `.\setup-localdb.ps1`
+- Check LocalDB instance status: `sqllocaldb info MSSQLLocalDB`
+- Restart LocalDB instance: `sqllocaldb stop MSSQLLocalDB; sqllocaldb start MSSQLLocalDB`
+
 ### Log Files
 - **Installation Log**: `%TEMP%\TimeTrackerInstall.log`
 - **Service Logs**: Windows Event Log → Application
@@ -180,6 +197,13 @@ dotnet --list-runtimes
 ```powershell
 # Check .NET runtime
 dotnet --info
+
+# Check SQL Server LocalDB
+sqllocaldb info
+sqllocaldb info MSSQLLocalDB
+
+# Test database connection
+.\setup-localdb.ps1
 
 # Check service status
 Get-Service -Name "TimeTracker.DesktopApp" | Format-List *
@@ -239,8 +263,14 @@ if ((Get-Service -Name "TimeTracker.DesktopApp").Status -eq "Running") {
 }
 
 # Database check
-if (Test-Path "C:\Program Files\TimeTracker\DesktopApp\TimeTracker.db") {
-    Write-Host "Database file exists" -ForegroundColor Green
+try {
+    $connectionString = "Server=(localdb)\MSSQLLocalDB;Database=TimeTrackerDB;Integrated Security=true;Connection Timeout=30;"
+    $connection = New-Object System.Data.SqlClient.SqlConnection($connectionString)
+    $connection.Open()
+    $connection.Close()
+    Write-Host "SQL Server database connection successful" -ForegroundColor Green
+} catch {
+    Write-Host "Database connection failed: $($_.Exception.Message)" -ForegroundColor Red
 }
 ```
 

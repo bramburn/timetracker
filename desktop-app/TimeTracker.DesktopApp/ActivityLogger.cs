@@ -174,7 +174,7 @@ public class ActivityLogger : IDisposable
     }
 
     /// <summary>
-    /// Logs activity data to both local storage and Pipedream
+    /// Logs activity data to local storage for batch processing
     /// </summary>
     /// <param name="activityData">The activity data to log</param>
     private async Task LogActivityAsync(ActivityDataModel activityData)
@@ -188,38 +188,16 @@ public class ActivityLogger : IDisposable
             // Update current activity
             _currentActivity = activityData.Clone();
 
-            // Store locally (this should always succeed or we have bigger problems)
+            // Store locally for batch processing (BatchProcessor will handle Pipedream submission)
             var localStorageSuccess = await _dataAccess.InsertActivityAsync(activityData);
             if (!localStorageSuccess)
             {
                 _logger.LogError("Failed to store activity data locally: {Activity}", activityData.ToString());
             }
-
-            // Enqueue Pipedream submission for background processing
-            _backgroundTaskQueue.QueueBackgroundWorkItem(async cancellationToken =>
+            else
             {
-                await _submissionSemaphore.WaitAsync(cancellationToken);
-                try
-                {
-                    var submissionSuccess = await _pipedreamClient.SubmitActivityDataAsync(activityData);
-                    if (!submissionSuccess)
-                    {
-                        _logger.LogWarning("Failed to submit activity data to Pipedream: {Activity}", activityData.ToString());
-                    }
-                    else
-                    {
-                        _logger.LogDebug("Successfully submitted activity data to Pipedream: {Activity}", activityData.ToString());
-                    }
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error submitting activity data to Pipedream: {Activity}", activityData.ToString());
-                }
-                finally
-                {
-                    _submissionSemaphore.Release();
-                }
-            });
+                _logger.LogDebug("Successfully stored activity data locally: {Activity}", activityData.ToString());
+            }
         }
         catch (Exception ex)
         {

@@ -102,6 +102,64 @@ public class PipedreamClient : IPipedreamClient
     }
 
     /// <summary>
+    /// Submits a batch of activity data to the Pipedream endpoint with retry logic
+    /// </summary>
+    /// <param name="activityDataBatch">The batch of activity data to submit</param>
+    /// <returns>True if submission was successful, false otherwise</returns>
+    public async Task<bool> SubmitBatchDataAsync(IEnumerable<ActivityDataModel> activityDataBatch)
+    {
+        if (_disposed)
+        {
+            _logger.LogWarning("Attempted to submit batch data using disposed PipedreamClient");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(_endpointUrl))
+        {
+            _logger.LogDebug("Pipedream endpoint not configured, skipping batch submission");
+            return false;
+        }
+
+        var batchList = activityDataBatch.ToList();
+        if (batchList.Count == 0)
+        {
+            _logger.LogDebug("Empty batch provided, skipping submission");
+            return true; // Empty batch is considered successful
+        }
+
+        for (int attempt = 1; attempt <= _retryAttempts; attempt++)
+        {
+            try
+            {
+                var success = await SubmitBatchDataAttemptAsync(batchList);
+                if (success)
+                {
+                    if (attempt > 1)
+                    {
+                        _logger.LogInformation("Batch data submission succeeded on attempt {Attempt}", attempt);
+                    }
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Batch data submission attempt {Attempt} failed: {Message}", attempt, ex.Message);
+            }
+
+            // Wait before retry (except on last attempt)
+            if (attempt < _retryAttempts)
+            {
+                var delay = _retryDelayMs * attempt; // Exponential backoff
+                _logger.LogDebug("Waiting {Delay}ms before retry attempt {NextAttempt}", delay, attempt + 1);
+                await Task.Delay(delay);
+            }
+        }
+
+        _logger.LogError("All {RetryAttempts} batch submission attempts failed", _retryAttempts);
+        return false;
+    }
+
+    /// <summary>
     /// Performs a single attempt to submit data to Pipedream
     /// </summary>
     /// <param name="activityData">The activity data to submit</param>
@@ -145,6 +203,55 @@ public class PipedreamClient : IPipedreamClient
         catch (JsonException ex)
         {
             _logger.LogError(ex, "JSON serialization failed for activity data");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Performs a single attempt to submit batch data to Pipedream
+    /// </summary>
+    /// <param name="activityDataBatch">The batch of activity data to submit</param>
+    /// <returns>True if submission was successful, false otherwise</returns>
+    private async Task<bool> SubmitBatchDataAttemptAsync(List<ActivityDataModel> activityDataBatch)
+    {
+        try
+        {
+            // Serialize batch data to JSON array
+            var jsonPayload = JsonSerializer.Serialize(activityDataBatch, JsonOptions);
+            var content = new StringContent(jsonPayload, Encoding.UTF8, "application/json");
+
+            _logger.LogDebug("Submitting batch data to Pipedream: {RecordCount} records", activityDataBatch.Count);
+
+            // Send HTTP POST request
+            var response = await _httpClient.PostAsync(_endpointUrl, content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                _logger.LogInformation("Batch data submitted successfully. Status: {StatusCode}, Records: {RecordCount}",
+                    response.StatusCode, activityDataBatch.Count);
+                return true;
+            }
+            else
+            {
+                var responseContent = await response.Content.ReadAsStringAsync();
+                _logger.LogWarning("Pipedream batch submission failed. Status: {StatusCode}, Response: {Response}",
+                    response.StatusCode, responseContent);
+                return false;
+            }
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "HTTP request failed during Pipedream batch submission");
+            return false;
+        }
+        catch (TaskCanceledException ex)
+        {
+            _logger.LogWarning(ex, "Request timeout during Pipedream batch submission");
+            return false;
+        }
+        catch (JsonException ex)
+        {
+            _logger.LogError(ex, "JSON serialization failed for batch activity data");
             return false;
         }
     }

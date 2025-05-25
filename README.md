@@ -1,13 +1,14 @@
 # TimeTracker - Employee Activity Monitor
 
-A Windows service application that monitors user activity, stores data locally in SQLite, and transmits it to a configurable endpoint.
+A Windows service application that monitors user activity, stores data in SQL Server, and transmits it to a configurable endpoint.
 
 ## Features
 
 - Runs as a background Windows Service
 - Tracks active window changes and application usage
 - Detects user activity (keyboard/mouse input)
-- Stores data locally in SQLite database
+- Stores data in SQL Server with optimized performance
+- Batch processing for efficient data handling
 - Transmits data to configurable endpoint
 - Minimal system impact (< 5% CPU, < 100MB RAM)
 
@@ -15,17 +16,19 @@ A Windows service application that monitors user activity, stores data locally i
 
 - Windows 10/11 (x64)
 - .NET 8 Runtime
+- SQL Server Express LocalDB
 - Administrator privileges for installation
+- WiX Toolset v4.0 (for building installer)
 
 ## Quick Start
 
-### Installation
+### Production Installation
 
 1. Download the latest MSI installer from the [Releases](https://github.com/yourusername/timetracker/releases) page
 2. Run the installer with administrator privileges
 3. The service will automatically start and run in the background
 
-### Manual Installation (Development)
+### Development Setup
 
 1. Clone the repository:
    ```bash
@@ -33,40 +36,139 @@ A Windows service application that monitors user activity, stores data locally i
    cd timetracker
    ```
 
-2. Build the solution:
-   ```bash
+2. Install prerequisites:
+   ```powershell
+   # Install WiX Toolset
+   winget install WiXToolset.WiXToolset
+   
+   # Install SQL Server Express LocalDB
+   winget install Microsoft.SQLServer.2022.Express.LocalDB
+   ```
+
+3. Build the solution:
+   ```powershell
    dotnet restore
    dotnet build
    ```
 
-3. Install the service:
+4. Choose your installation method:
+
+   a. Direct service installation (recommended for development):
    ```powershell
    cd desktop-app
-   .\install-service.ps1
+   .\install-service-direct.ps1 build    # Build the application
+   .\install-service-direct.ps1 install  # Install as service
    ```
 
-### Configuration
+   b. MSI installer (recommended for production):
+   ```powershell
+   cd desktop-app
+   .\build-installer-simple.ps1          # Build the MSI installer
+   .\install-service.ps1                 # Install using MSI
+   ```
 
-1. Update `desktop-app/TimeTracker.DesktopApp/appsettings.json` with your endpoint URL
-2. Restart the service to apply changes
+## Configuration
 
-## Service Management
+The application uses SQL Server for data storage with the following configurable options in `appsettings.json`:
+
+```json
+{
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=TimeTracker;Trusted_Connection=True;"
+  },
+  "TimeTracker": {
+    "MaxBatchSize": 100,
+    "BatchInsertIntervalMs": 30000,
+    "EnableBulkOperations": true
+  }
+}
+```
+
+- `MaxBatchSize`: Maximum number of records to process in a single batch
+- `BatchInsertIntervalMs`: Interval between batch processing in milliseconds
+- `EnableBulkOperations`: Enable/disable bulk insert operations for better performance
+
+## Development Workflow
+
+### Running Without Service Installation
+
+For quick testing and development:
+```powershell
+cd desktop-app
+.\run-timetracker.ps1 -Build -Publish -Console
+```
+
+### Service Management
+
+1. Check service status:
+   ```powershell
+   .\check-status.ps1
+   ```
+
+2. Start/Stop service:
+   ```powershell
+   .\install-service-direct.ps1 start
+   .\install-service-direct.ps1 stop
+   ```
+
+3. Monitor service:
+   ```powershell
+   .\install-service-direct.ps1 monitor
+   ```
+
+### Troubleshooting
+
+1. Run diagnostics:
+   ```powershell
+   .\diagnose-service-enhanced.ps1
+   ```
+
+2. Manual service test:
+   ```powershell
+   .\test-service-manual.ps1
+   ```
+
+3. Performance testing:
+   ```powershell
+   .\test-performance.ps1 -DurationMinutes 5
+   ```
+
+## Production Deployment
+
+### Building the Installer
+
+1. Build the MSI installer:
+   ```powershell
+   cd desktop-app
+   .\build-installer.ps1
+   ```
+
+2. The installer will be created in the `dist` directory
+
+### Installation Options
+
+1. Silent installation:
+   ```powershell
+   .\install-service.ps1 -Silent
+   ```
+
+2. Uninstallation:
+   ```powershell
+   .\install-service.ps1 -Uninstall
+   ```
+
+### Service Configuration
 
 - **Service Name**: `TimeTracker.DesktopApp`
 - **Display Name**: `Internal Employee Activity Monitor`
+- **Configuration File**: `appsettings.json`
 
-### Commands
-
-```powershell
-# Start service
-net start TimeTracker.DesktopApp
-
-# Stop service
-net stop TimeTracker.DesktopApp
-
-# Uninstall
-.\install-service.ps1 -Uninstall
-```
+Update the configuration:
+1. Edit `appsettings.json`
+2. Restart the service:
+   ```powershell
+   .\install-service-direct.ps1 restart
+   ```
 
 ## Data Collection
 
@@ -77,68 +179,13 @@ The service collects:
 - Windows username
 - Timestamp
 
-Data is stored locally in SQLite and transmitted to the configured endpoint.
+Data is stored in SQL Server with optimized indexes for:
+- Timestamp-based queries
+- Sync status tracking
+- Username lookups
+- Process name searches
 
-## Development
-
-### Prerequisites
-
-- .NET 8 SDK
-- Visual Studio 2022 (or Rider/VS Code with C# Dev Kit)
-- WiX Toolset v4.0 or later
-
-### Setting Up WiX Toolset
-
-1. Install WiX Toolset:
-   ```powershell
-   # Using winget (recommended)
-   winget install WiXToolset.WiXToolset
-
-   # Or download from https://github.com/wixtoolset/wix4/releases
-   ```
-
-2. Add WiX to your PATH if not already done:
-   ```powershell
-   # Add to your PowerShell profile
-   $env:Path += ";C:\Program Files\WiX Toolset v4.0\bin"
-   ```
-
-### Building the Installer
-
-1. Navigate to the desktop app directory:
-   ```powershell
-   cd desktop-app
-   ```
-
-2. Build the MSI installer:
-   ```powershell
-   # Build using the provided script
-   .\build-installer-simple.ps1
-
-   # Or manually
-   dotnet build TimeTracker.Installer
-   ```
-
-3. The MSI installer will be created in the `dist` directory
-
-### Installing for Development
-
-1. Build the solution:
-   ```powershell
-   dotnet restore
-   dotnet build
-   ```
-
-2. Install the service:
-   ```powershell
-   cd desktop-app
-   .\install-service.ps1
-   ```
-
-3. Verify installation:
-   ```powershell
-   Get-Service TimeTracker.DesktopApp
-   ```
+Data is transmitted to the configured endpoint.
 
 ## Security & Privacy
 
@@ -146,6 +193,30 @@ Data is stored locally in SQLite and transmitted to the configured endpoint.
 - HTTPS transmission
 - Local database protection
 - Data minimization
+
+## Troubleshooting Guide
+
+If you encounter issues:
+
+1. Check service status:
+   ```powershell
+   .\check-status.ps1
+   ```
+
+2. Run enhanced diagnostics:
+   ```powershell
+   .\diagnose-service-enhanced.ps1
+   ```
+
+3. View service logs:
+   ```powershell
+   .\troubleshoot-service.ps1
+   ```
+
+4. Common solutions:
+   - Service not visible: Run `.\install-service-direct.ps1 uninstall` followed by `install`
+   - Service won't start: Check Event Viewer and rebuild/install
+   - No data transmission: Verify endpoint URL in `appsettings.json`
 
 ## License
 

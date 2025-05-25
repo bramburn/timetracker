@@ -68,6 +68,10 @@ internal static class NativeMethods
     internal const int WM_INPUT = 0x00FF;
     internal const int RID_INPUT = 0x10000003;
 
+    // GetLastInputInfo API for fallback input detection
+    [DllImport("user32.dll")]
+    internal static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
+
     // Hook types
     internal const int WH_KEYBOARD_LL = 13;
     internal const int WH_MOUSE_LL = 14;
@@ -138,6 +142,16 @@ internal static class NativeMethods
         internal ushort Usage;
         internal uint Flags;
         internal IntPtr Target;
+    }
+
+    /// <summary>
+    /// Structure for GetLastInputInfo API
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct LASTINPUTINFO
+    {
+        internal uint cbSize;
+        internal uint dwTime;
     }
 
     /// <summary>

@@ -22,12 +22,15 @@ public class TestConfiguration : IConfiguration
     {
         var defaultData = new Dictionary<string, string>
         {
+            ["ConnectionStrings:DefaultConnection"] = "Server=(localdb)\\MSSQLLocalDB;Database=TimeTrackerTestDB;Integrated Security=true;Connection Timeout=30;",
             ["TimeTracker:ActivityTimeoutMs"] = "30000",
             ["TimeTracker:WindowMonitoringIntervalMs"] = "1000",
-            ["TimeTracker:DatabasePath"] = "TestTimeTracker.db",
             ["TimeTracker:PipedreamEndpointUrl"] = "https://test.example.com",
             ["TimeTracker:RetryAttempts"] = "3",
-            ["TimeTracker:RetryDelayMs"] = "5000"
+            ["TimeTracker:RetryDelayMs"] = "5000",
+            ["TimeTracker:MaxBatchSize"] = "50",
+            ["TimeTracker:BatchInsertIntervalMs"] = "10000",
+            ["TimeTracker:EnableBulkOperations"] = "true"
         };
 
         if (additionalData != null)
