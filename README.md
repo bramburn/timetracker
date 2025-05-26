@@ -1,227 +1,284 @@
 # TimeTracker - Employee Activity Monitor
 
-A Windows service application that monitors user activity, stores data in SQL Server, and transmits it to a configurable endpoint.
+A Windows service application that monitors user activity, stores data in SQL Server Express, and transmits it to a configurable Pipedream endpoint for testing and analysis.
 
 ## Features
 
-- Runs as a background Windows Service
-- Tracks active window changes and application usage
-- Detects user activity (keyboard/mouse input)
-- Stores data in SQL Server with optimized performance
-- Batch processing for efficient data handling
-- Transmits data to configurable endpoint
-- Minimal system impact (< 5% CPU, < 100MB RAM)
+- **Windows Service**: Runs as a background service with user session access
+- **Activity Monitoring**: Tracks active window changes and application usage
+- **Input Detection**: Detects user activity (keyboard/mouse input) with global hooks
+- **SQL Server Storage**: Uses SQL Server Express LocalDB for reliable data storage
+- **Batch Processing**: Efficient batch processing for data transmission
+- **Pipedream Integration**: Transmits data to configurable Pipedream endpoint
+- **Performance Optimized**: Minimal system impact (< 5% CPU, < 100MB RAM)
+- **User Session Aware**: Properly configured to monitor interactive desktop sessions
 
 ## Requirements
 
-- Windows 10/11 (x64)
-- .NET 8 Runtime
-- SQL Server Express LocalDB
-- Administrator privileges for installation
-- WiX Toolset v4.0 (for building installer)
+- **OS**: Windows 10/11 (x64)
+- **Runtime**: .NET 8 Runtime
+- **Database**: SQL Server Express LocalDB (automatically configured)
+- **Privileges**: Administrator privileges for service installation
+- **Account**: User account with password (for service to access desktop session)
 
 ## Quick Start
 
 ### Production Installation
 
-1. Download the latest MSI installer from the [Releases](https://github.com/yourusername/timetracker/releases) page
-2. Run the installer with administrator privileges
-3. The service will automatically start and run in the background
+**Option 1: User Account Service (Recommended)**
+```powershell
+# 1. Clone and build
+git clone https://github.com/bramburn/timetracker.git
+cd timetracker/desktop-app
+
+# 2. Build the application
+dotnet publish TimeTracker.DesktopApp -c Release -r win-x64 --self-contained
+
+# 3. Install as service running under your user account
+.\install-service-user-fixed.bat
+
+# 4. Configure service account manually:
+# - Open services.msc as Administrator
+# - Find "Internal Employee Activity Monitor"
+# - Right-click -> Properties -> Log On tab
+# - Select "This account" and enter your Windows credentials
+# - Start the service
+```
+
+**Option 2: PowerShell Installation**
+```powershell
+# Run as Administrator
+cd desktop-app
+.\install-service-direct.ps1 install
+```
 
 ### Development Setup
 
-1. Clone the repository:
+1. **Clone the repository:**
    ```bash
-   git clone https://github.com/yourusername/timetracker.git
+   git clone https://github.com/bramburn/timetracker.git
    cd timetracker
    ```
 
-2. Install prerequisites:
+2. **Install prerequisites:**
    ```powershell
-   # Install WiX Toolset
-   winget install WiXToolset.WiXToolset
-   
-   # Install SQL Server Express LocalDB
+   # Install .NET 8 SDK
+   winget install Microsoft.DotNet.SDK.8
+
+   # SQL Server Express LocalDB (optional - auto-configured)
    winget install Microsoft.SQLServer.2022.Express.LocalDB
    ```
 
-3. Build the solution:
+3. **Build and test:**
    ```powershell
+   # Restore dependencies
    dotnet restore
+
+   # Build the solution
    dotnet build
+
+   # Run tests
+   dotnet test
    ```
 
-4. Choose your installation method:
-
-   a. Direct service installation (recommended for development):
+4. **Development installation:**
    ```powershell
    cd desktop-app
-   .\install-service-direct.ps1 build    # Build the application
-   .\install-service-direct.ps1 install  # Install as service
-   ```
 
-   b. MSI installer (recommended for production):
-   ```powershell
-   cd desktop-app
-   .\build-installer-simple.ps1          # Build the MSI installer
-   .\install-service.ps1                 # Install using MSI
+   # Build and install for development
+   .\install-service-direct.ps1 build
+   .\install-service-direct.ps1 install
+
+   # Monitor the service
+   .\install-service-direct.ps1 monitor
    ```
 
 ## Configuration
 
-The application uses SQL Server for data storage with the following configurable options in `appsettings.json`:
+The application uses SQL Server Express LocalDB and Pipedream for data storage and transmission. Configuration is in `appsettings.json`:
 
 ```json
 {
   "ConnectionStrings": {
-    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=TimeTracker;Trusted_Connection=True;"
+    "DefaultConnection": "Server=(localdb)\\mssqllocaldb;Database=TimeTracker;Trusted_Connection=True;TrustServerCertificate=True;"
   },
-  "TimeTracker": {
-    "MaxBatchSize": 100,
-    "BatchInsertIntervalMs": 30000,
-    "EnableBulkOperations": true
+  "Pipedream": {
+    "EndpointUrl": "https://eo2etvy0q1v9l11.m.pipedream.net",
+    "MaxRetryAttempts": 3,
+    "RetryDelayMs": 5000
+  },
+  "BatchProcessor": {
+    "IntervalMinutes": 1,
+    "MaxBatchSize": 50
+  },
+  "ActivityLogger": {
+    "MaxConcurrentSubmissions": 3,
+    "ActivityTimeoutMs": 30000
   }
 }
 ```
 
-- `MaxBatchSize`: Maximum number of records to process in a single batch
-- `BatchInsertIntervalMs`: Interval between batch processing in milliseconds
-- `EnableBulkOperations`: Enable/disable bulk insert operations for better performance
+**Key Settings:**
+- `EndpointUrl`: Pipedream webhook URL for data transmission
+- `MaxRetryAttempts`: Number of retry attempts for failed transmissions
+- `IntervalMinutes`: How often to process and send batches
+- `MaxBatchSize`: Maximum records per batch transmission
+- `ActivityTimeoutMs`: Timeout for detecting user inactivity
 
-## Development Workflow
+## Service Management
 
-### Running Without Service Installation
+### Available Commands
 
-For quick testing and development:
 ```powershell
 cd desktop-app
-.\run-timetracker.ps1 -Build -Publish -Console
+
+# Build the application
+.\install-service-direct.ps1 build
+
+# Install the service
+.\install-service-direct.ps1 install
+
+# Start/Stop/Restart service
+.\install-service-direct.ps1 start
+.\install-service-direct.ps1 stop
+.\install-service-direct.ps1 restart
+
+# Monitor service in real-time
+.\install-service-direct.ps1 monitor
+
+# Check service status
+.\install-service-direct.ps1 status
+
+# Uninstall service
+.\install-service-direct.ps1 uninstall
 ```
 
-### Service Management
+### Monitoring and Logs
 
-1. Check service status:
-   ```powershell
-   .\check-status.ps1
-   ```
+**Real-time Monitoring:**
+```powershell
+.\install-service-direct.ps1 monitor
+```
 
-2. Start/Stop service:
-   ```powershell
-   .\install-service-direct.ps1 start
-   .\install-service-direct.ps1 stop
-   ```
+**Log Files:**
+- **Service Logs**: `C:\ProgramData\TimeTracker\Logs\TimeTracker.log`
+- **Windows Event Log**: Application log (source: TimeTracker.DesktopApp)
 
-3. Monitor service:
-   ```powershell
-   .\install-service-direct.ps1 monitor
-   ```
+**Check Recent Activity:**
+```powershell
+Get-Content "C:\ProgramData\TimeTracker\Logs\TimeTracker.log" -Tail 20
+```
 
-### Troubleshooting
+## Troubleshooting
 
-1. Run diagnostics:
-   ```powershell
-   .\diagnose-service-enhanced.ps1
-   ```
+### Common Issues
 
-2. Manual service test:
-   ```powershell
-   .\test-service-manual.ps1
-   ```
+**1. Service shows "Inactive" status with "Time since last input: Never"**
+- **Cause**: Service running as SYSTEM account cannot access user desktop
+- **Solution**: Use user account installation method:
+  ```powershell
+  .\install-service-user-fixed.bat
+  # Then configure service account in services.msc
+  ```
 
-3. Performance testing:
-   ```powershell
-   .\test-performance.ps1 -DurationMinutes 5
-   ```
+**2. Service fails to start**
+- **Cause**: User account needs password or "Log on as a service" rights
+- **Solution**:
+  1. Open `services.msc` as Administrator
+  2. Find "Internal Employee Activity Monitor"
+  3. Properties → Log On tab → Configure user account and password
 
-## Production Deployment
+**3. No data being sent to Pipedream**
+- **Check**: Service logs for errors
+- **Verify**: Pipedream endpoint URL in `appsettings.json`
+- **Test**: Connection using the monitor command
 
-### Building the Installer
+**4. Service not visible in Services console**
+- **Solution**: Uninstall and reinstall:
+  ```powershell
+  .\install-service-direct.ps1 uninstall
+  .\install-service-direct.ps1 install
+  ```
 
-1. Build the MSI installer:
-   ```powershell
-   cd desktop-app
-   .\build-installer.ps1
-   ```
+### Diagnostic Commands
 
-2. The installer will be created in the `dist` directory
+```powershell
+# Check service status
+Get-Service "TimeTracker.DesktopApp"
 
-### Installation Options
+# View recent logs
+Get-Content "C:\ProgramData\TimeTracker\Logs\TimeTracker.log" -Tail 50
 
-1. Silent installation:
-   ```powershell
-   .\install-service.ps1 -Silent
-   ```
+# Check Windows Event Log
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='TimeTracker.DesktopApp'} -MaxEvents 10
+```
 
-2. Uninstallation:
-   ```powershell
-   .\install-service.ps1 -Uninstall
-   ```
+## Data Collection & Privacy
 
-### Service Configuration
+### What Data is Collected
+- **Window Information**: Active window title and application process name
+- **Activity Status**: User activity state (Active/Inactive) based on input detection
+- **User Context**: Windows username and machine name
+- **Timestamps**: When activities occur
+- **Session Data**: Batch IDs for tracking data transmission
 
-- **Service Name**: `TimeTracker.DesktopApp`
-- **Display Name**: `Internal Employee Activity Monitor`
-- **Configuration File**: `appsettings.json`
+### What is NOT Collected
+- **No Keystroke Logging**: Individual keystrokes are never recorded
+- **No Screen Content**: Screenshots or screen content are not captured
+- **No Personal Files**: File contents or personal documents are not accessed
+- **No Network Traffic**: Other network activity is not monitored
 
-Update the configuration:
-1. Edit `appsettings.json`
-2. Restart the service:
-   ```powershell
-   .\install-service-direct.ps1 restart
-   ```
+### Data Storage & Transmission
+- **Local Storage**: SQL Server Express LocalDB with encrypted connections
+- **Transmission**: HTTPS to configured Pipedream endpoint
+- **Batch Processing**: Data sent in batches every 1 minute (configurable)
+- **Cleanup**: Successfully transmitted data is automatically deleted locally
 
-## Data Collection
+### Security Features
+- **Encrypted Database Connections**: `TrustServerCertificate=True` in connection string
+- **HTTPS Transmission**: All data sent over secure connections
+- **Local Data Protection**: Database files protected by Windows file system security
+- **Minimal Data Retention**: Data deleted after successful transmission
 
-The service collects:
-- Active window title
-- Application process name
-- User activity status
-- Windows username
-- Timestamp
+## Architecture
 
-Data is stored in SQL Server with optimized indexes for:
-- Timestamp-based queries
-- Sync status tracking
-- Username lookups
-- Process name searches
+### Components
+- **ActivityLogger**: Coordinates data collection and logging
+- **OptimizedWindowMonitor**: Tracks active window changes using Windows hooks
+- **GlobalHookInputMonitor**: Detects keyboard/mouse activity using global hooks
+- **SqlServerDataAccess**: Manages database operations with batch processing
+- **BatchProcessor**: Handles periodic data transmission to Pipedream
+- **PipedreamClient**: Manages HTTP communication with the endpoint
 
-Data is transmitted to the configured endpoint.
+### Data Flow
+1. **Monitor** → Detect window/input changes
+2. **Logger** → Store activity data locally
+3. **Batch Processor** → Collect unsynced data every minute
+4. **Pipedream Client** → Transmit data via HTTPS
+5. **Cleanup** → Remove successfully transmitted data
 
-## Security & Privacy
+## Project Structure
 
-- No keystroke logging
-- HTTPS transmission
-- Local database protection
-- Data minimization
-
-## Troubleshooting Guide
-
-If you encounter issues:
-
-1. Check service status:
-   ```powershell
-   .\check-status.ps1
-   ```
-
-2. Run enhanced diagnostics:
-   ```powershell
-   .\diagnose-service-enhanced.ps1
-   ```
-
-3. View service logs:
-   ```powershell
-   .\troubleshoot-service.ps1
-   ```
-
-4. Common solutions:
-   - Service not visible: Run `.\install-service-direct.ps1 uninstall` followed by `install`
-   - Service won't start: Check Event Viewer and rebuild/install
-   - No data transmission: Verify endpoint URL in `appsettings.json`
-
-## License
-
-[License information to be added]
+```
+timetracker/
+├── desktop-app/                          # Main application
+│   ├── TimeTracker.DesktopApp/           # Core service application
+│   ├── TimeTracker.DesktopApp.Tests/     # Unit tests
+│   ├── install-service-direct.ps1        # PowerShell installer
+│   └── install-service-user-fixed.bat    # User account installer
+├── webserver/                            # Django web interface (future)
+└── docs/                                 # Documentation
+```
 
 ## Contributing
 
-Please refer to the project documentation in the `docs/` directory for detailed requirements and specifications.
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests for new functionality
+5. Ensure all tests pass: `dotnet test`
+6. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
