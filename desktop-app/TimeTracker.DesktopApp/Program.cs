@@ -1,30 +1,29 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Extensions.Logging;
-using System.Collections;
-using System.Diagnostics;
-using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
-using System.Text;
 using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
 /// <summary>
 /// Main entry point for the TimeTracker Desktop Application.
-/// Configures and runs the application as a Windows Service with dependency injection,
-/// logging, and configuration management.
+/// Configures and runs the application as a desktop application with system tray integration,
+/// dependency injection, logging, and configuration management.
 /// </summary>
 public class Program
 {
     private static readonly string LogDirectory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "TimeTracker", "Logs");
     private static readonly string LogFilePath = Path.Combine(LogDirectory, "TimeTracker.log");
 
+    [STAThread]
     public static async Task Main(string[] args)
     {
+        // Enable visual styles for Windows Forms
+        Application.EnableVisualStyles();
+        Application.SetCompatibleTextRenderingDefault(false);
+
         // Ensure log directory exists
         EnsureLogDirectoryExists();
 
@@ -41,76 +40,57 @@ public class Program
             startupLogger.LogInformation("=== TimeTracker Desktop Application Starting ===");
             startupLogger.LogInformation("Application Directory: {Directory}", AppContext.BaseDirectory);
             startupLogger.LogInformation("Command Line Args: {Args}", string.Join(" ", args));
-            startupLogger.LogInformation("Running as Windows Service: {IsWindowsService}", WindowsServiceHelpers.IsWindowsService());
             startupLogger.LogInformation(".NET Runtime Version: {Version}", RuntimeInformation.FrameworkDescription);
             startupLogger.LogInformation("OS Description: {OS}", RuntimeInformation.OSDescription);
 
             // Validate runtime environment
             await ValidateRuntimeEnvironmentAsync(startupLogger);
 
-            // Create and configure the host builder
-            var builder = Host.CreateApplicationBuilder(args);
+            // Create service collection and configure services
+            var services = new ServiceCollection();
 
-            // Configure the application to run as a Windows Service
-            builder.Services.AddWindowsService(options =>
-            {
-                options.ServiceName = "TimeTracker.DesktopApp";
-            });
+            // Configure logging
+            ConfigureLogging(services, startupLogger);
 
-            // Configure enhanced logging
-            ConfigureLogging(builder.Services, startupLogger);
-
-            // Configure application settings with validation
-            ConfigureAppSettings(builder, startupLogger);
+            // Configure application settings
+            var configuration = ConfigureAppSettings(startupLogger);
+            services.AddSingleton<IConfiguration>(configuration);
 
             // Register application services
-            RegisterServices(builder.Services, builder.Configuration);
+            RegisterServices(services, configuration);
 
-            // Register the main worker service
-            builder.Services.AddHostedService<TimeTrackerWorkerService>();
+            // Build service provider
+            var serviceProvider = services.BuildServiceProvider();
 
-            // Build and run the host
-            var host = builder.Build();
+            // Validate services
+            await ValidateServicesAsync(serviceProvider, startupLogger);
 
-            // Perform startup validation
-            await ValidateServicesAsync(host, startupLogger);
-
-            // Log startup information
-            var logger = host.Services.GetRequiredService<ILogger<Program>>();
+            // Create and run the application context
+            var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
             logger.LogInformation("TimeTracker Desktop Application configured successfully");
-            logger.LogInformation("Starting host...");
+            logger.LogInformation("Starting desktop application...");
 
-            await host.RunAsync();
+            using var appContext = new TimeTrackerApplicationContext(serviceProvider, logger);
+            Application.Run(appContext);
+
+            logger.LogInformation("TimeTracker Desktop Application shutting down");
         }
         catch (Exception ex)
         {
             startupLogger.LogCritical(ex, "Critical failure during application startup");
 
-            // Try to log to Event Log as fallback
-            try
+            // Show detailed error to user
+            var errorMessage = $"TimeTracker failed to start:\n\n{ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
+            if (ex.InnerException != null)
             {
-                using var eventLoggerFactory = LoggerFactory.Create(builder =>
-                {
-                    try
-                    {
-                        builder.AddEventLog(options =>
-                        {
-                            options.SourceName = "TimeTracker.DesktopApp";
-                            options.LogName = "Application";
-                        });
-                    }
-                    catch
-                    {
-                        // Event log may not be available
-                    }
-                });
-                var eventLogger = eventLoggerFactory.CreateLogger<Program>();
-                eventLogger.LogCritical(ex, "TimeTracker service failed to start");
+                errorMessage += $"\n\nInner Exception:\n{ex.InnerException.Message}";
             }
-            catch
-            {
-                // Ignore event log errors during shutdown
-            }
+
+            MessageBox.Show(errorMessage, "TimeTracker Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+            // Also write to console for debugging
+            Console.WriteLine($"ERROR: {ex}");
 
             // Exit with error code
             Environment.Exit(1);
@@ -325,7 +305,7 @@ public class Program
     /// <summary>
     /// Configures application settings with validation
     /// </summary>
-    private static void ConfigureAppSettings(HostApplicationBuilder builder, ILogger logger)
+    private static IConfiguration ConfigureAppSettings(ILogger logger)
     {
         var appSettingsPath = Path.Combine(AppContext.BaseDirectory, "appsettings.json");
         logger.LogInformation("Looking for configuration file: {Path}", appSettingsPath);
@@ -338,8 +318,13 @@ public class Program
 
         try
         {
-            builder.Configuration.AddJsonFile(appSettingsPath, optional: false, reloadOnChange: true);
+            var builder = new ConfigurationBuilder()
+                .SetBasePath(AppContext.BaseDirectory)
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true);
+
+            var configuration = builder.Build();
             logger.LogInformation("Configuration file loaded successfully");
+            return configuration;
         }
         catch (Exception ex)
         {
@@ -351,22 +336,30 @@ public class Program
     /// <summary>
     /// Validates that all required services can be created
     /// </summary>
-    private static async Task ValidateServicesAsync(IHost host, ILogger logger)
+    private static async Task ValidateServicesAsync(IServiceProvider serviceProvider, ILogger logger)
     {
         try
         {
             logger.LogInformation("Validating service dependencies...");
 
             // Test that we can resolve critical services
-            var activityLogger = host.Services.GetRequiredService<ActivityLogger>();
-            var dataAccess = host.Services.GetRequiredService<IDataAccess>();
-            var pipedreamClient = host.Services.GetRequiredService<IPipedreamClient>();
+            var activityLogger = serviceProvider.GetRequiredService<ActivityLogger>();
+            var dataAccess = serviceProvider.GetRequiredService<IDataAccess>();
+            var pipedreamClient = serviceProvider.GetRequiredService<IPipedreamClient>();
 
             logger.LogInformation("All critical services resolved successfully");
 
             // Test database connectivity by getting count
-            var activityCount = await dataAccess.GetActivityCountAsync();
-            logger.LogInformation("Database connectivity validated. Current activity count: {Count}", activityCount);
+            try
+            {
+                var activityCount = await dataAccess.GetActivityCountAsync();
+                logger.LogInformation("Database connectivity validated. Current activity count: {Count}", activityCount);
+            }
+            catch (Exception dbEx)
+            {
+                logger.LogWarning(dbEx, "Database connectivity test failed - continuing without database validation");
+                // Continue without database validation for now
+            }
 
             logger.LogInformation("Service validation completed successfully");
         }
@@ -404,380 +397,127 @@ public class Program
         // Register activity logger
         services.AddSingleton<ActivityLogger>();
 
-        // Register batch processor as hosted service
-        services.AddHostedService<BatchProcessor>();
+        // Register batch processor (not as hosted service for desktop app)
+        services.AddSingleton<BatchProcessor>();
+
+        // Register desktop app specific services
+        services.AddSingleton<TrayIconManager>();
+        services.AddSingleton<SessionMonitor>();
+        services.AddSingleton<ConfigurationManager>();
     }
 }
 
 /// <summary>
-/// Background worker service that orchestrates the activity monitoring process.
-/// Implements IHostedService to integrate with the .NET hosting model.
+/// Application context for the TimeTracker desktop application.
+/// Manages the application lifecycle, system tray integration, and coordinates all services.
 /// </summary>
-public class TimeTrackerWorkerService : BackgroundService
+public class TimeTrackerApplicationContext : ApplicationContext
 {
-    private readonly ILogger<TimeTrackerWorkerService> _logger;
+    private readonly ILogger<TimeTrackerApplicationContext> _logger;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ActivityLogger _activityLogger;
-    private readonly IHostApplicationLifetime _applicationLifetime;
+    private readonly TrayIconManager _trayIconManager;
+    private readonly SessionMonitor _sessionMonitor;
+    private readonly BatchProcessor _batchProcessor;
+    private bool _disposed = false;
 
-    public TimeTrackerWorkerService(
-        ActivityLogger activityLogger,
-        ILogger<TimeTrackerWorkerService> logger,
-        IHostApplicationLifetime applicationLifetime)
+    public TimeTrackerApplicationContext(IServiceProvider serviceProvider, ILogger logger)
     {
-        _activityLogger = activityLogger;
-        _logger = logger;
-        _applicationLifetime = applicationLifetime;
+        _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
+        _logger = (ILogger<TimeTrackerApplicationContext>)logger ?? throw new ArgumentNullException(nameof(logger));
+
+        // Get required services
+        _activityLogger = _serviceProvider.GetRequiredService<ActivityLogger>();
+        _trayIconManager = _serviceProvider.GetRequiredService<TrayIconManager>();
+        _sessionMonitor = _serviceProvider.GetRequiredService<SessionMonitor>();
+        _batchProcessor = _serviceProvider.GetRequiredService<BatchProcessor>();
+
+        // Initialize the application
+        InitializeApplication();
     }
 
     /// <summary>
-    /// Called when the service is starting
+    /// Initializes the desktop application
     /// </summary>
-    /// <param name="cancellationToken">Cancellation token</param>
-    public override async Task StartAsync(CancellationToken cancellationToken)
+    private async void InitializeApplication()
     {
-        _logger.LogInformation("=== TimeTracker Worker Service Starting ===");
-        _logger.LogInformation("Service Start Time: {StartTime}", DateTime.Now);
-        _logger.LogInformation("Process ID: {ProcessId}", Environment.ProcessId);
-        _logger.LogInformation("Working Directory: {WorkingDirectory}", Environment.CurrentDirectory);
-        _logger.LogInformation("Service Account: {Account}", Environment.UserName);
-
-        // Call base.StartAsync first to signal to SCM that service is starting
-        await base.StartAsync(cancellationToken);
-
-        // Start initialization in background to avoid SCM timeout
-        _ = Task.Run(async () =>
+        try
         {
+            _logger.LogInformation("=== TimeTracker Desktop Application Initializing ===");
+            _logger.LogInformation("Application Start Time: {StartTime}", DateTime.Now);
+            _logger.LogInformation("Process ID: {ProcessId}", Environment.ProcessId);
+            _logger.LogInformation("Working Directory: {WorkingDirectory}", Environment.CurrentDirectory);
+            _logger.LogInformation("User Account: {Account}", Environment.UserName);
+
+            // Start session monitoring first
+            _logger.LogInformation("Starting session monitoring...");
+            _sessionMonitor.Start();
+
+            // Start tray icon manager
+            _logger.LogInformation("Starting tray icon manager...");
+            _trayIconManager.Start();
+
+            // Start batch processor
+            _logger.LogInformation("Starting batch processor...");
+            await _batchProcessor.StartAsync(CancellationToken.None);
+
+            // Start activity logging
+            _logger.LogInformation("Starting activity logging...");
+            await _activityLogger.StartAsync();
+
+            _logger.LogInformation("TimeTracker Desktop Application initialized successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Critical failure during application initialization");
+
+            var errorMessage = $"Failed to initialize TimeTracker:\n\n{ex.Message}\n\nStack Trace:\n{ex.StackTrace}";
+            if (ex.InnerException != null)
+            {
+                errorMessage += $"\n\nInner Exception:\n{ex.InnerException.Message}";
+            }
+
+            MessageBox.Show(errorMessage, "TimeTracker Initialization Error",
+                MessageBoxButtons.OK, MessageBoxIcon.Error);
+
+            ExitThread();
+        }
+    }
+
+    /// <summary>
+    /// Disposes of the application context and all managed resources
+    /// </summary>
+    protected override void Dispose(bool disposing)
+    {
+        if (!_disposed && disposing)
+        {
+            _disposed = true;
+
             try
             {
-                // Log to Event Log for service startup tracking
-                await LogToEventLogAsync("TimeTracker service startup initiated", EventLogEntryType.Information);
+                _logger.LogInformation("TimeTracker Desktop Application shutting down...");
 
-                // Minimal delay for system stabilization
-                _logger.LogInformation("Waiting for system stabilization...");
-                await Task.Delay(TimeSpan.FromSeconds(1), cancellationToken);
+                // Stop all services in reverse order
+                _activityLogger?.Stop();
+                _batchProcessor?.StopAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(10));
+                _trayIconManager?.Stop();
+                _sessionMonitor?.Stop();
 
-                // Validate environment before starting
-                await ValidateServiceEnvironmentAsync();
+                // Dispose services
+                _trayIconManager?.Dispose();
+                _sessionMonitor?.Dispose();
+                _activityLogger?.Dispose();
+                _batchProcessor?.Dispose();
 
-                // Start activity logging with enhanced timeout and retry logic
-                _logger.LogInformation("Starting activity logging...");
-                await StartActivityLoggingWithRetryAsync(cancellationToken);
-
-                // Verify service is working
-                await VerifyServiceOperationAsync();
-
-                // Log successful startup
-                await LogToEventLogAsync("TimeTracker service started successfully", EventLogEntryType.Information);
-                _logger.LogInformation("TimeTracker Worker Service startup completed successfully");
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                _logger.LogWarning("Service startup was cancelled");
-                await LogToEventLogAsync("TimeTracker service startup was cancelled", EventLogEntryType.Warning);
+                _logger.LogInformation("TimeTracker Desktop Application shutdown completed");
             }
             catch (Exception ex)
             {
-                _logger.LogCritical(ex, "Critical failure during service startup");
-                await LogToEventLogAsync($"TimeTracker service startup failed: {ex.Message}", EventLogEntryType.Error);
-
-                // Try to provide more diagnostic information
-                try
-                {
-                    await LogDiagnosticInformationAsync();
-                }
-                catch (Exception diagEx)
-                {
-                    _logger.LogError(diagEx, "Failed to log diagnostic information");
-                }
-
-                // Create failure report
-                await CreateFailureReportAsync(ex);
-
-                // Stop the application gracefully
-                _applicationLifetime.StopApplication();
-            }
-        }, cancellationToken);
-
-        _logger.LogInformation("TimeTracker Worker Service StartAsync completed - initialization continuing in background");
-    }
-
-    /// <summary>
-    /// Starts activity logging with retry logic
-    /// </summary>
-    private async Task StartActivityLoggingWithRetryAsync(CancellationToken cancellationToken)
-    {
-        const int maxRetries = 3;
-        const int baseDelaySeconds = 5;
-
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
-        {
-            try
-            {
-                _logger.LogInformation("Starting activity logging (attempt {Attempt}/{MaxRetries})", attempt, maxRetries);
-
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(30)); // 30-second timeout per attempt for faster service startup
-
-                await _activityLogger.StartAsync();
-                _logger.LogInformation("Activity logging started successfully on attempt {Attempt}", attempt);
-                return; // Success, exit retry loop
-            }
-            catch (Exception ex) when (attempt < maxRetries)
-            {
-                var delay = TimeSpan.FromSeconds(baseDelaySeconds * attempt);
-                _logger.LogWarning(ex, "Activity logging start failed on attempt {Attempt}/{MaxRetries}. Retrying in {Delay} seconds",
-                    attempt, maxRetries, delay.TotalSeconds);
-
-                await Task.Delay(delay, cancellationToken);
+                _logger.LogError(ex, "Error during application shutdown");
             }
         }
 
-        // If we get here, all retries failed
-        throw new InvalidOperationException($"Failed to start activity logging after {maxRetries} attempts");
+        base.Dispose(disposing);
     }
 
-    /// <summary>
-    /// Logs messages to Windows Event Log
-    /// </summary>
-    private async Task LogToEventLogAsync(string message, EventLogEntryType entryType)
-    {
-        try
-        {
-            await Task.Run(() =>
-            {
-                try
-                {
-                    using var eventLog = new EventLog("Application");
-                    eventLog.Source = "TimeTracker.DesktopApp";
-                    eventLog.WriteEntry(message, entryType);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Failed to write to Event Log internally: {Message}", message);
-                }
-            });
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Failed to write to Event Log: {Message}", message);
-        }
-    }
-
-    /// <summary>
-    /// Creates a failure report for troubleshooting
-    /// </summary>
-    private async Task CreateFailureReportAsync(Exception exception)
-    {
-        try
-        {
-            var reportPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "TimeTracker", "Logs", $"failure_report_{DateTime.Now:yyyyMMdd_HHmmss}.txt");
-
-            var report = new StringBuilder();
-            report.AppendLine("=== TIMETRACKER SERVICE FAILURE REPORT ===");
-            report.AppendLine($"Timestamp: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-            report.AppendLine($"Machine: {Environment.MachineName}");
-            report.AppendLine($"User: {Environment.UserName}");
-            report.AppendLine($"OS: {Environment.OSVersion}");
-            report.AppendLine($"Runtime: {RuntimeInformation.FrameworkDescription}");
-            report.AppendLine($"Process ID: {Environment.ProcessId}");
-            report.AppendLine($"Working Directory: {Environment.CurrentDirectory}");
-            report.AppendLine($"Application Directory: {AppContext.BaseDirectory}");
-            report.AppendLine();
-            report.AppendLine("=== EXCEPTION DETAILS ===");
-            report.AppendLine(exception.ToString());
-            report.AppendLine();
-            report.AppendLine("=== ENVIRONMENT VARIABLES ===");
-
-            foreach (DictionaryEntry env in Environment.GetEnvironmentVariables())
-            {
-                report.AppendLine($"{env.Key}={env.Value}");
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(reportPath)!);
-            await File.WriteAllTextAsync(reportPath, report.ToString());
-
-            _logger.LogInformation("Failure report created: {ReportPath}", reportPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to create failure report");
-        }
-    }
-
-    /// <summary>
-    /// Main execution loop for the background service
-    /// </summary>
-    /// <param name="stoppingToken">Cancellation token for stopping the service</param>
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
-    {
-        _logger.LogInformation("TimeTracker Worker Service is running");
-
-        try
-        {
-            // Log status information periodically
-            while (!stoppingToken.IsCancellationRequested)
-            {
-                // Log status every 5 minutes
-                await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
-
-                if (!stoppingToken.IsCancellationRequested)
-                {
-                    var statusInfo = _activityLogger.GetStatusInfo();
-                    var activityCount = await _activityLogger.GetActivityCountAsync();
-
-                    _logger.LogInformation("Status: {StatusInfo}, Total activities logged: {ActivityCount}",
-                        statusInfo, activityCount);
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Expected when cancellation is requested
-            _logger.LogInformation("TimeTracker Worker Service execution was cancelled");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error in TimeTracker Worker Service execution");
-        }
-    }
-
-    /// <summary>
-    /// Called when the service is stopping
-    /// </summary>
-    /// <param name="cancellationToken">Cancellation token</param>
-    public override async Task StopAsync(CancellationToken cancellationToken)
-    {
-        _logger.LogInformation("TimeTracker Worker Service is stopping");
-
-        try
-        {
-            _activityLogger.Stop();
-            _logger.LogInformation("Activity logging stopped successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error stopping activity logging");
-        }
-
-        await base.StopAsync(cancellationToken);
-        _logger.LogInformation("TimeTracker Worker Service stopped");
-    }
-
-    public override void Dispose()
-    {
-        try
-        {
-            _activityLogger?.Dispose();
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error disposing ActivityLogger");
-        }
-
-        base.Dispose();
-    }
-
-    /// <summary>
-    /// Validates the service environment before startup
-    /// </summary>
-    private async Task ValidateServiceEnvironmentAsync()
-    {
-        _logger.LogInformation("Validating service environment...");
-
-        // Check if running as a service
-        var isWindowsService = WindowsServiceHelpers.IsWindowsService();
-        _logger.LogInformation("Running as Windows Service: {IsService}", isWindowsService);
-
-        // Check application directory permissions
-        var appDir = AppContext.BaseDirectory;
-        if (!Directory.Exists(appDir))
-        {
-            throw new DirectoryNotFoundException($"Application directory not found: {appDir}");
-        }
-
-        // Check if we can write to logs directory
-        var logsDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "TimeTracker", "Logs");
-        try
-        {
-            if (!Directory.Exists(logsDir))
-            {
-                Directory.CreateDirectory(logsDir);
-            }
-
-            var testFile = Path.Combine(logsDir, "test.tmp");
-            await File.WriteAllTextAsync(testFile, "test");
-            File.Delete(testFile);
-            _logger.LogInformation("Logs directory access validated: {LogsDir}", logsDir);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogWarning(ex, "Cannot write to logs directory: {LogsDir}", logsDir);
-        }
-
-        _logger.LogInformation("Service environment validation completed");
-    }
-
-    /// <summary>
-    /// Verifies that the service is operating correctly after startup
-    /// </summary>
-    private async Task VerifyServiceOperationAsync()
-    {
-        _logger.LogInformation("Verifying service operation...");
-
-        try
-        {
-            // Check if activity logger is responsive
-            var statusInfo = _activityLogger.GetStatusInfo();
-            _logger.LogInformation("Activity Logger Status: {Status}", statusInfo);
-
-            // Test database connectivity
-            var activityCount = await _activityLogger.GetActivityCountAsync();
-            _logger.LogInformation("Database connectivity verified. Activity count: {Count}", activityCount);
-
-            _logger.LogInformation("Service operation verification completed successfully");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Service operation verification failed");
-            throw;
-        }
-    }
-
-    /// <summary>
-    /// Logs diagnostic information for troubleshooting
-    /// </summary>
-    private async Task LogDiagnosticInformationAsync()
-    {
-        try
-        {
-            _logger.LogInformation("=== DIAGNOSTIC INFORMATION ===");
-            _logger.LogInformation("Machine Name: {MachineName}", Environment.MachineName);
-            _logger.LogInformation("User Name: {UserName}", Environment.UserName);
-            _logger.LogInformation("OS Version: {OSVersion}", Environment.OSVersion);
-            _logger.LogInformation("Processor Count: {ProcessorCount}", Environment.ProcessorCount);
-            _logger.LogInformation("Working Set: {WorkingSet} bytes", Environment.WorkingSet);
-            _logger.LogInformation("System Directory: {SystemDirectory}", Environment.SystemDirectory);
-            _logger.LogInformation("Current Directory: {CurrentDirectory}", Environment.CurrentDirectory);
-            _logger.LogInformation("Application Base Directory: {BaseDirectory}", AppContext.BaseDirectory);
-
-            // Check file system permissions
-            var appDir = AppContext.BaseDirectory;
-            var appSettingsPath = Path.Combine(appDir, "appsettings.json");
-            _logger.LogInformation("App Settings File Exists: {Exists}", File.Exists(appSettingsPath));
-
-            if (File.Exists(appSettingsPath))
-            {
-                var fileInfo = new FileInfo(appSettingsPath);
-                _logger.LogInformation("App Settings File Size: {Size} bytes", fileInfo.Length);
-                _logger.LogInformation("App Settings Last Modified: {LastModified}", fileInfo.LastWriteTime);
-            }
-
-            _logger.LogInformation("=== END DIAGNOSTIC INFORMATION ===");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to collect diagnostic information");
-        }
-    }
 }

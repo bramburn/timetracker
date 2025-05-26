@@ -72,6 +72,30 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     internal static extern bool GetLastInputInfo(ref LASTINPUTINFO plii);
 
+    // Session notification API for session monitoring
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    internal static extern bool WTSRegisterSessionNotification(IntPtr hWnd, uint dwFlags);
+
+    [DllImport("wtsapi32.dll", SetLastError = true)]
+    internal static extern bool WTSUnRegisterSessionNotification(IntPtr hWnd);
+
+    // Session notification constants
+    internal const uint NOTIFY_FOR_THIS_SESSION = 0;
+    internal const uint NOTIFY_FOR_ALL_SESSIONS = 1;
+
+    // Session change message
+    internal const int WM_WTSSESSION_CHANGE = 0x02B1;
+
+    // Session change reasons
+    internal const int WTS_CONSOLE_CONNECT = 0x1;
+    internal const int WTS_CONSOLE_DISCONNECT = 0x2;
+    internal const int WTS_REMOTE_CONNECT = 0x3;
+    internal const int WTS_REMOTE_DISCONNECT = 0x4;
+    internal const int WTS_SESSION_LOGON = 0x5;
+    internal const int WTS_SESSION_LOGOFF = 0x6;
+    internal const int WTS_SESSION_LOCK = 0x7;
+    internal const int WTS_SESSION_UNLOCK = 0x8;
+
     // Hook types
     internal const int WH_KEYBOARD_LL = 13;
     internal const int WH_MOUSE_LL = 14;

@@ -1,21 +1,23 @@
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using TimeTracker.DesktopApp.Interfaces;
 
 namespace TimeTracker.DesktopApp;
 
 /// <summary>
-/// Background service responsible for batch processing and uploading activity data to Pipedream.
+/// Service responsible for batch processing and uploading activity data to Pipedream.
 /// Collects unsynced records at regular intervals, submits them as batches, and manages local cleanup.
 /// </summary>
-public class BatchProcessor : BackgroundService
+public class BatchProcessor : IDisposable
 {
     private readonly ILogger<BatchProcessor> _logger;
     private readonly IDataAccess _dataAccess;
     private readonly IPipedreamClient _pipedreamClient;
     private readonly int _batchIntervalMinutes;
     private readonly int _maxBatchSize;
+    private readonly System.Threading.Timer _batchTimer;
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+    private bool _disposed = false;
 
     public BatchProcessor(
         ILogger<BatchProcessor> logger,
@@ -31,46 +33,55 @@ public class BatchProcessor : BackgroundService
         _batchIntervalMinutes = configuration.GetValue<int>("TimeTracker:PipedreamBatchIntervalMinutes", 1);
         _maxBatchSize = configuration.GetValue<int>("TimeTracker:MaxBatchSize", 50);
 
+        // Initialize timer (but don't start it yet)
+        var intervalMs = TimeSpan.FromMinutes(_batchIntervalMinutes).TotalMilliseconds;
+        _batchTimer = new System.Threading.Timer(OnBatchTimerElapsed, null, Timeout.Infinite, (int)intervalMs);
+
         _logger.LogInformation("BatchProcessor initialized with interval: {IntervalMinutes} minutes, max batch size: {MaxBatchSize}",
             _batchIntervalMinutes, _maxBatchSize);
     }
 
     /// <summary>
-    /// Main execution loop for the background service
+    /// Starts the batch processor
     /// </summary>
-    /// <param name="stoppingToken">Cancellation token</param>
+    /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Task representing the async operation</returns>
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        _logger.LogInformation("BatchProcessor started");
-
-        // Wait a short time before starting to allow other services to initialize
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken);
-
-        while (!stoppingToken.IsCancellationRequested)
+        if (_disposed)
         {
-            try
-            {
-                await ProcessBatchAsync();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Error during batch processing");
-            }
-
-            // Wait for the configured interval before next batch processing
-            try
-            {
-                await Task.Delay(TimeSpan.FromMinutes(_batchIntervalMinutes), stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                // Expected when service is stopping
-                break;
-            }
+            _logger.LogWarning("Cannot start disposed BatchProcessor");
+            return;
         }
 
-        _logger.LogInformation("BatchProcessor stopped");
+        _logger.LogInformation("BatchProcessor starting...");
+
+        // Wait a short time before starting to allow other services to initialize
+        await Task.Delay(TimeSpan.FromSeconds(10), cancellationToken);
+
+        // Start the timer
+        var intervalMs = TimeSpan.FromMinutes(_batchIntervalMinutes).TotalMilliseconds;
+        _batchTimer.Change((int)intervalMs, (int)intervalMs);
+
+        _logger.LogInformation("BatchProcessor started");
+    }
+
+    /// <summary>
+    /// Timer callback for batch processing
+    /// </summary>
+    private async void OnBatchTimerElapsed(object? state)
+    {
+        if (_disposed || _cancellationTokenSource.Token.IsCancellationRequested)
+            return;
+
+        try
+        {
+            await ProcessBatchAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during batch processing");
+        }
     }
 
     /// <summary>
@@ -138,13 +149,21 @@ public class BatchProcessor : BackgroundService
     }
 
     /// <summary>
-    /// Handles service stop to ensure graceful shutdown
+    /// Stops the batch processor
     /// </summary>
     /// <param name="cancellationToken">Cancellation token</param>
     /// <returns>Task representing the async operation</returns>
-    public override async Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken = default)
     {
+        if (_disposed) return;
+
         _logger.LogInformation("BatchProcessor stopping...");
+
+        // Stop the timer
+        _batchTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+        // Signal cancellation
+        _cancellationTokenSource.Cancel();
 
         // Process any remaining batch before stopping
         try
@@ -156,7 +175,30 @@ public class BatchProcessor : BackgroundService
             _logger.LogError(ex, "Error during final batch processing on shutdown");
         }
 
-        await base.StopAsync(cancellationToken);
         _logger.LogInformation("BatchProcessor stopped gracefully");
+    }
+
+    /// <summary>
+    /// Disposes of the batch processor and its resources
+    /// </summary>
+    public void Dispose()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+
+            try
+            {
+                _batchTimer?.Dispose();
+                _cancellationTokenSource?.Cancel();
+                _cancellationTokenSource?.Dispose();
+
+                _logger.LogInformation("BatchProcessor disposed successfully");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error disposing BatchProcessor");
+            }
+        }
     }
 }

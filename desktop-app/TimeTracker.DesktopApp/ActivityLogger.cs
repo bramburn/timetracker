@@ -23,6 +23,8 @@ public class ActivityLogger : IDisposable
 
     private ActivityDataModel? _currentActivity;
     private bool _disposed = false;
+    private bool _isPaused = false;
+    private bool _isStarted = false;
 
     public ActivityLogger(
         IDataAccess dataAccess,
@@ -65,6 +67,12 @@ public class ActivityLogger : IDisposable
             return;
         }
 
+        if (_isStarted && !_isPaused)
+        {
+            _logger.LogInformation("Activity logging is already started and active");
+            return;
+        }
+
         try
         {
             _logger.LogInformation("Starting activity logging...");
@@ -85,6 +93,8 @@ public class ActivityLogger : IDisposable
                 await LogActivityAsync(initialActivity);
             }
 
+            _isStarted = true;
+            _isPaused = false;
             _logger.LogInformation("Activity logging started successfully");
         }
         catch (Exception ex)
@@ -108,12 +118,70 @@ public class ActivityLogger : IDisposable
             _windowMonitor.Stop();
             _inputMonitor.Stop();
 
+            _isStarted = false;
+            _isPaused = false;
             _logger.LogInformation("Activity logging stopped");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error occurred while stopping activity logging");
         }
+    }
+
+    /// <summary>
+    /// Pauses the activity logging process
+    /// </summary>
+    public void PauseTracking()
+    {
+        if (_disposed || !_isStarted) return;
+
+        try
+        {
+            _logger.LogInformation("Pausing activity logging...");
+            _isPaused = true;
+            _logger.LogInformation("Activity logging paused");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while pausing activity logging");
+        }
+    }
+
+    /// <summary>
+    /// Resumes the activity logging process
+    /// </summary>
+    public void ResumeTracking()
+    {
+        if (_disposed || !_isStarted) return;
+
+        try
+        {
+            _logger.LogInformation("Resuming activity logging...");
+            _isPaused = false;
+            _logger.LogInformation("Activity logging resumed");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error occurred while resuming activity logging");
+        }
+    }
+
+    /// <summary>
+    /// Gets the current tracking state
+    /// </summary>
+    /// <returns>True if tracking is active (started and not paused), false otherwise</returns>
+    public bool IsTrackingActive()
+    {
+        return _isStarted && !_isPaused && !_disposed;
+    }
+
+    /// <summary>
+    /// Gets whether tracking is paused
+    /// </summary>
+    /// <returns>True if tracking is paused, false otherwise</returns>
+    public bool IsTrackingPaused()
+    {
+        return _isStarted && _isPaused && !_disposed;
     }
 
     /// <summary>
@@ -124,7 +192,7 @@ public class ActivityLogger : IDisposable
     {
         try
         {
-            if (activityData != null)
+            if (activityData != null && IsTrackingActive())
             {
                 // Update activity status from InputMonitor
                 activityData.ActivityStatus = _inputMonitor.GetCurrentActivityStatus();
@@ -147,6 +215,8 @@ public class ActivityLogger : IDisposable
     {
         try
         {
+            if (!IsTrackingActive()) return;
+
             // If we have current activity data, update its status and log
             if (_currentActivity != null)
             {
