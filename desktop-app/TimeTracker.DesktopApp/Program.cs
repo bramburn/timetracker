@@ -20,6 +20,9 @@ public class Program
     [STAThread]
     public static async Task Main(string[] args)
     {
+        // Temporary test mode - uncomment to test basic Windows Forms functionality
+        // TestProgram.TestMain();
+        // return;
         // Enable visual styles for Windows Forms
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
@@ -64,14 +67,37 @@ public class Program
 
             // Validate services
             await ValidateServicesAsync(serviceProvider, startupLogger);
+            startupLogger.LogInformation("Service validation completed, proceeding to desktop application startup...");
 
             // Create and run the application context
             var logger = serviceProvider.GetRequiredService<ILogger<Program>>();
             logger.LogInformation("TimeTracker Desktop Application configured successfully");
             logger.LogInformation("Starting desktop application...");
 
-            using var appContext = new TimeTrackerApplicationContext(serviceProvider, logger);
-            Application.Run(appContext);
+            try
+            {
+                logger.LogInformation("Creating TimeTrackerApplicationContext...");
+                using var appContext = new TimeTrackerApplicationContext(serviceProvider, logger);
+                logger.LogInformation("TimeTrackerApplicationContext created successfully");
+
+                logger.LogInformation("Starting Application.Run() message loop...");
+                Application.Run(appContext);
+                logger.LogInformation("Application.Run() message loop ended");
+            }
+            catch (Exception contextEx)
+            {
+                logger.LogCritical(contextEx, "Critical error in application context or message loop");
+
+                var errorMessage = $"TimeTracker failed during application context creation or execution:\n\n{contextEx.Message}\n\nStack Trace:\n{contextEx.StackTrace}";
+                if (contextEx.InnerException != null)
+                {
+                    errorMessage += $"\n\nInner Exception:\n{contextEx.InnerException.Message}";
+                }
+
+                MessageBox.Show(errorMessage, "TimeTracker Context Error",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                throw;
+            }
 
             logger.LogInformation("TimeTracker Desktop Application shutting down");
         }
@@ -404,6 +430,10 @@ public class Program
         services.AddSingleton<TrayIconManager>();
         services.AddSingleton<SessionMonitor>();
         services.AddSingleton<ConfigurationManager>();
+
+        // Register Phase 1 MVP services
+        services.AddSingleton<MainForm>();
+        services.AddSingleton<HeartbeatService>();
     }
 }
 
@@ -419,6 +449,8 @@ public class TimeTrackerApplicationContext : ApplicationContext
     private readonly TrayIconManager _trayIconManager;
     private readonly SessionMonitor _sessionMonitor;
     private readonly BatchProcessor _batchProcessor;
+    private readonly MainForm _mainForm;
+    private readonly HeartbeatService _heartbeatService;
     private bool _disposed = false;
 
     public TimeTrackerApplicationContext(IServiceProvider serviceProvider, ILogger logger)
@@ -426,14 +458,44 @@ public class TimeTrackerApplicationContext : ApplicationContext
         _serviceProvider = serviceProvider ?? throw new ArgumentNullException(nameof(serviceProvider));
         _logger = (ILogger<TimeTrackerApplicationContext>)logger ?? throw new ArgumentNullException(nameof(logger));
 
-        // Get required services
-        _activityLogger = _serviceProvider.GetRequiredService<ActivityLogger>();
-        _trayIconManager = _serviceProvider.GetRequiredService<TrayIconManager>();
-        _sessionMonitor = _serviceProvider.GetRequiredService<SessionMonitor>();
-        _batchProcessor = _serviceProvider.GetRequiredService<BatchProcessor>();
+        _logger.LogInformation("TimeTrackerApplicationContext constructor started");
 
-        // Initialize the application
-        InitializeApplication();
+        try
+        {
+            // Get required services
+            _logger.LogInformation("Resolving ActivityLogger service...");
+            _activityLogger = _serviceProvider.GetRequiredService<ActivityLogger>();
+            _logger.LogInformation("ActivityLogger service resolved successfully");
+
+            _logger.LogInformation("Resolving TrayIconManager service...");
+            _trayIconManager = _serviceProvider.GetRequiredService<TrayIconManager>();
+            _logger.LogInformation("TrayIconManager service resolved successfully");
+
+            _logger.LogInformation("Resolving SessionMonitor service...");
+            _sessionMonitor = _serviceProvider.GetRequiredService<SessionMonitor>();
+            _logger.LogInformation("SessionMonitor service resolved successfully");
+
+            _logger.LogInformation("Resolving BatchProcessor service...");
+            _batchProcessor = _serviceProvider.GetRequiredService<BatchProcessor>();
+            _logger.LogInformation("BatchProcessor service resolved successfully");
+
+            _logger.LogInformation("Resolving MainForm service...");
+            _mainForm = _serviceProvider.GetRequiredService<MainForm>();
+            _logger.LogInformation("MainForm service resolved successfully");
+
+            _logger.LogInformation("Resolving HeartbeatService service...");
+            _heartbeatService = _serviceProvider.GetRequiredService<HeartbeatService>();
+            _logger.LogInformation("HeartbeatService service resolved successfully");
+
+            _logger.LogInformation("All services resolved, starting application initialization...");
+            // Initialize the application
+            InitializeApplication();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogCritical(ex, "Critical error in TimeTrackerApplicationContext constructor");
+            throw;
+        }
     }
 
     /// <summary>
@@ -456,6 +518,15 @@ public class TimeTrackerApplicationContext : ApplicationContext
             // Start tray icon manager
             _logger.LogInformation("Starting tray icon manager...");
             _trayIconManager.Start();
+
+            // Show main form
+            _logger.LogInformation("Showing main form...");
+            _mainForm.Show();
+
+            // Start heartbeat service
+            _logger.LogInformation("Starting heartbeat service...");
+            _heartbeatService.SetMainForm(_mainForm);
+            await _heartbeatService.StartAsync(CancellationToken.None);
 
             // Start batch processor
             _logger.LogInformation("Starting batch processor...");
@@ -500,10 +571,13 @@ public class TimeTrackerApplicationContext : ApplicationContext
                 // Stop all services in reverse order
                 _activityLogger?.Stop();
                 _batchProcessor?.StopAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(10));
+                _heartbeatService?.StopAsync(CancellationToken.None).Wait(TimeSpan.FromSeconds(5));
                 _trayIconManager?.Stop();
                 _sessionMonitor?.Stop();
 
                 // Dispose services
+                _mainForm?.Dispose();
+                _heartbeatService?.Dispose();
                 _trayIconManager?.Dispose();
                 _sessionMonitor?.Dispose();
                 _activityLogger?.Dispose();

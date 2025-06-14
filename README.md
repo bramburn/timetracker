@@ -25,7 +25,7 @@ A Windows service application that monitors user activity, stores data in SQL Se
 
 ### Production Installation
 
-**Option 1: User Account Service (Recommended)**
+**Option 1: Standard Installation (Recommended)**
 ```powershell
 # 1. Clone and build
 git clone https://github.com/bramburn/timetracker.git
@@ -34,18 +34,11 @@ cd timetracker/desktop-app
 # 2. Build the application
 dotnet publish TimeTracker.DesktopApp -c Release -r win-x64 --self-contained
 
-# 3. Install as service running under your user account
-.\install-service-user-fixed.bat
-
-# 4. Configure service account manually:
-# - Open services.msc as Administrator
-# - Find "Internal Employee Activity Monitor"
-# - Right-click -> Properties -> Log On tab
-# - Select "This account" and enter your Windows credentials
-# - Start the service
+# 3. Run the application
+.\TimeTracker.DesktopApp.exe
 ```
 
-**Option 2: PowerShell Installation**
+**Option 2: Auto-start with Windows**
 ```powershell
 # Run as Administrator
 cd desktop-app
@@ -81,17 +74,101 @@ cd desktop-app
    dotnet test
    ```
 
-4. **Development installation:**
+4. **Development run:**
    ```powershell
    cd desktop-app
 
-   # Build and install for development
-   .\install-service-direct.ps1 build
-   .\install-service-direct.ps1 install
-
-   # Monitor the service
-   .\install-service-direct.ps1 monitor
+   # Build and run for development
+   dotnet run --project TimeTracker.DesktopApp
    ```
+
+## Application Management
+
+### Available Commands
+
+```powershell
+cd desktop-app
+
+# Build the application
+dotnet build
+
+# Run the application
+dotnet run --project TimeTracker.DesktopApp
+
+# Install auto-start
+.\install-service-direct.ps1 install
+
+# Remove auto-start
+.\install-service-direct.ps1 uninstall
+```
+
+### System Tray Controls
+
+The application runs in the system tray with the following controls:
+
+- **Left-click**: Show status overlay
+- **Right-click**: Open context menu with options:
+  - Start Tracking
+  - Pause Tracking
+  - Stop Tracking
+  - Settings
+  - Status
+  - Exit
+
+### Monitoring and Logs
+
+**Real-time Status:**
+- Left-click the system tray icon to view the status overlay
+- Shows current active window, tracking status, and Pipedream sync status
+
+**Log Files:**
+- **Application Logs**: `%APPDATA%\TimeTracker\Logs\TimeTracker.log`
+- **Windows Event Log**: Application log (source: TimeTracker.DesktopApp)
+
+**Check Recent Activity:**
+```powershell
+Get-Content "$env:APPDATA\TimeTracker\Logs\TimeTracker.log" -Tail 20
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**1. Application not starting**
+- **Cause**: Missing .NET 8 Runtime
+- **Solution**: Install .NET 8 Runtime:
+  ```powershell
+  winget install Microsoft.DotNet.Runtime.8
+  ```
+
+**2. No system tray icon visible**
+- **Cause**: Application crashed or failed to start
+- **Solution**: Check application logs and Windows Event Viewer
+
+**3. No data being sent to Pipedream**
+- **Check**: Status overlay for sync status
+- **Verify**: Pipedream endpoint URL in settings
+- **Test**: Connection using the test button in settings
+
+**4. Auto-start not working**
+- **Solution**: Reinstall auto-start:
+  ```powershell
+  .\install-service-direct.ps1 uninstall
+  .\install-service-direct.ps1 install
+  ```
+
+### Diagnostic Commands
+
+```powershell
+# Check if application is running
+Get-Process TimeTracker.DesktopApp
+
+# View recent logs
+Get-Content "$env:APPDATA\TimeTracker\Logs\TimeTracker.log" -Tail 50
+
+# Check Windows Event Log
+Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='TimeTracker.DesktopApp'} -MaxEvents 10
+```
 
 ## Configuration
 
@@ -124,121 +201,6 @@ The application uses SQL Server Express LocalDB and Pipedream for data storage a
 - `IntervalMinutes`: How often to process and send batches
 - `MaxBatchSize`: Maximum records per batch transmission
 - `ActivityTimeoutMs`: Timeout for detecting user inactivity
-
-## Service Management
-
-### Available Commands
-
-```powershell
-cd desktop-app
-
-# Build the application
-.\install-service-direct.ps1 build
-
-# Install the service
-.\install-service-direct.ps1 install
-
-# Start/Stop/Restart service
-.\install-service-direct.ps1 start
-.\install-service-direct.ps1 stop
-.\install-service-direct.ps1 restart
-
-# Monitor service in real-time
-.\install-service-direct.ps1 monitor
-
-# Check service status
-.\install-service-direct.ps1 status
-
-# Uninstall service
-.\install-service-direct.ps1 uninstall
-```
-
-### Monitoring and Logs
-
-**Real-time Monitoring:**
-```powershell
-.\install-service-direct.ps1 monitor
-```
-
-**Log Files:**
-- **Service Logs**: `C:\ProgramData\TimeTracker\Logs\TimeTracker.log`
-- **Windows Event Log**: Application log (source: TimeTracker.DesktopApp)
-
-**Check Recent Activity:**
-```powershell
-Get-Content "C:\ProgramData\TimeTracker\Logs\TimeTracker.log" -Tail 20
-```
-
-## Troubleshooting
-
-### Common Issues
-
-**1. Service shows "Inactive" status with "Time since last input: Never"**
-- **Cause**: Service running as SYSTEM account cannot access user desktop
-- **Solution**: Use user account installation method:
-  ```powershell
-  .\install-service-user-fixed.bat
-  # Then configure service account in services.msc
-  ```
-
-**2. Service fails to start**
-- **Cause**: User account needs password or "Log on as a service" rights
-- **Solution**:
-  1. Open `services.msc` as Administrator
-  2. Find "Internal Employee Activity Monitor"
-  3. Properties → Log On tab → Configure user account and password
-
-**3. No data being sent to Pipedream**
-- **Check**: Service logs for errors
-- **Verify**: Pipedream endpoint URL in `appsettings.json`
-- **Test**: Connection using the monitor command
-
-**4. Service not visible in Services console**
-- **Solution**: Uninstall and reinstall:
-  ```powershell
-  .\install-service-direct.ps1 uninstall
-  .\install-service-direct.ps1 install
-  ```
-
-### Diagnostic Commands
-
-```powershell
-# Check service status
-Get-Service "TimeTracker.DesktopApp"
-
-# View recent logs
-Get-Content "C:\ProgramData\TimeTracker\Logs\TimeTracker.log" -Tail 50
-
-# Check Windows Event Log
-Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='TimeTracker.DesktopApp'} -MaxEvents 10
-```
-
-## Data Collection & Privacy
-
-### What Data is Collected
-- **Window Information**: Active window title and application process name
-- **Activity Status**: User activity state (Active/Inactive) based on input detection
-- **User Context**: Windows username and machine name
-- **Timestamps**: When activities occur
-- **Session Data**: Batch IDs for tracking data transmission
-
-### What is NOT Collected
-- **No Keystroke Logging**: Individual keystrokes are never recorded
-- **No Screen Content**: Screenshots or screen content are not captured
-- **No Personal Files**: File contents or personal documents are not accessed
-- **No Network Traffic**: Other network activity is not monitored
-
-### Data Storage & Transmission
-- **Local Storage**: SQL Server Express LocalDB with encrypted connections
-- **Transmission**: HTTPS to configured Pipedream endpoint
-- **Batch Processing**: Data sent in batches every 1 minute (configurable)
-- **Cleanup**: Successfully transmitted data is automatically deleted locally
-
-### Security Features
-- **Encrypted Database Connections**: `TrustServerCertificate=True` in connection string
-- **HTTPS Transmission**: All data sent over secure connections
-- **Local Data Protection**: Database files protected by Windows file system security
-- **Minimal Data Retention**: Data deleted after successful transmission
 
 ## Architecture
 

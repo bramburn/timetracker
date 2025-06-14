@@ -20,8 +20,10 @@ public class TrayIconManager : IDisposable
     private bool _disposed = false;
     private SettingsForm? _settingsForm;
     private StatusOverlayForm? _statusOverlayForm;
+    private MainForm? _mainForm;
 
     // Menu items for state management
+    private ToolStripMenuItem _showMainWindowMenuItem;
     private ToolStripMenuItem _startTrackingMenuItem;
     private ToolStripMenuItem _pauseTrackingMenuItem;
     private ToolStripMenuItem _stopTrackingMenuItem;
@@ -59,24 +61,68 @@ public class TrayIconManager : IDisposable
     {
         try
         {
-            // Set default icon (you may want to embed actual icon resources)
-            _notifyIcon.Icon = SystemIcons.Application;
-            _notifyIcon.Text = "TimeTracker: Inactive";
-            _notifyIcon.Visible = true;
+            _logger.LogInformation("Initializing NotifyIcon...");
 
-            // Show a balloon tip to make the tray icon more noticeable
-            _notifyIcon.ShowBalloonTip(3000, "TimeTracker", "Application started successfully", ToolTipIcon.Info);
+            // Load the application icon
+            Icon appIcon = LoadApplicationIcon();
+            _notifyIcon.Icon = appIcon;
+            _logger.LogInformation("NotifyIcon icon loaded from app.ico");
+
+            _notifyIcon.Text = "TimeTracker: Inactive";
+            _logger.LogInformation("NotifyIcon text set to: {Text}", _notifyIcon.Text);
+
+            _notifyIcon.Visible = true;
+            _logger.LogInformation("NotifyIcon visibility set to: {Visible}", _notifyIcon.Visible);
 
             // Wire up events
             _notifyIcon.MouseClick += OnNotifyIconClick;
-            _notifyIcon.ContextMenuStrip = _contextMenu;
+            _logger.LogInformation("NotifyIcon MouseClick event handler attached");
 
-            _logger.LogDebug("NotifyIcon initialized successfully");
+            _notifyIcon.ContextMenuStrip = _contextMenu;
+            _logger.LogInformation("NotifyIcon ContextMenuStrip attached");
+
+            _logger.LogInformation("NotifyIcon initialized successfully");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to initialize NotifyIcon");
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Loads the application icon from file or embedded resource
+    /// </summary>
+    private Icon LoadApplicationIcon()
+    {
+        try
+        {
+            // First try to load from file in the application directory
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+            if (File.Exists(iconPath))
+            {
+                _logger.LogInformation("Loading icon from file: {IconPath}", iconPath);
+                return new Icon(iconPath);
+            }
+
+            // Try to load from embedded resource
+            var assembly = System.Reflection.Assembly.GetExecutingAssembly();
+            var resourceName = "TimeTracker.DesktopApp.app.ico";
+            using var stream = assembly.GetManifestResourceStream(resourceName);
+            if (stream != null)
+            {
+                _logger.LogInformation("Loading icon from embedded resource: {ResourceName}", resourceName);
+                return new Icon(stream);
+            }
+
+            // Fallback to system icon
+            _logger.LogWarning("Could not find app.ico file or embedded resource, using SystemIcons.Application");
+            return SystemIcons.Application;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error loading application icon, falling back to SystemIcons.Application");
+            return SystemIcons.Application;
         }
     }
 
@@ -88,6 +134,7 @@ public class TrayIconManager : IDisposable
         try
         {
             // Create menu items
+            _showMainWindowMenuItem = new ToolStripMenuItem("Show Main Window", null, OnShowMainWindow);
             _startTrackingMenuItem = new ToolStripMenuItem("Start Tracking", null, OnStartTracking);
             _pauseTrackingMenuItem = new ToolStripMenuItem("Pause Tracking", null, OnPauseTracking);
             _stopTrackingMenuItem = new ToolStripMenuItem("Stop Tracking", null, OnStopTracking);
@@ -98,6 +145,8 @@ public class TrayIconManager : IDisposable
             // Add items to context menu
             _contextMenu.Items.AddRange(new ToolStripItem[]
             {
+                _showMainWindowMenuItem,
+                new ToolStripSeparator(),
                 _startTrackingMenuItem,
                 _pauseTrackingMenuItem,
                 _stopTrackingMenuItem,
@@ -130,12 +179,24 @@ public class TrayIconManager : IDisposable
 
         try
         {
-            _statusUpdateTimer.Start();
-            _logger.LogInformation("TrayIconManager started successfully");
+            _logger.LogInformation("Starting TrayIconManager...");
 
-            // Temporary debug message to confirm application is running
-            MessageBox.Show("TimeTracker is now running in the system tray!\n\nRight-click the tray icon to access controls.",
-                "TimeTracker Started", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            // Ensure the NotifyIcon is visible
+            _notifyIcon.Visible = true;
+            _logger.LogInformation("NotifyIcon visibility set to true");
+
+            // Force a refresh of the tray icon
+            _notifyIcon.Icon = LoadApplicationIcon();
+            _logger.LogInformation("NotifyIcon icon refreshed with app.ico");
+
+            _statusUpdateTimer.Start();
+            _logger.LogInformation("Status update timer started");
+
+            // Show balloon tip to make the tray icon more noticeable
+            _notifyIcon.ShowBalloonTip(5000, "TimeTracker", "Application started successfully - Look for the icon in your system tray!", ToolTipIcon.Info);
+            _logger.LogInformation("Balloon tip displayed");
+
+            _logger.LogInformation("TrayIconManager started successfully");
         }
         catch (Exception ex)
         {
@@ -172,7 +233,7 @@ public class TrayIconManager : IDisposable
             if (_activityLogger.IsTrackingActive())
             {
                 _notifyIcon.Text = "TimeTracker: Active";
-                _notifyIcon.Icon = SystemIcons.Information; // Green-ish icon
+                _notifyIcon.Icon = LoadApplicationIcon(); // Use app icon for active state
 
                 _startTrackingMenuItem.Enabled = false;
                 _pauseTrackingMenuItem.Enabled = true;
@@ -181,7 +242,7 @@ public class TrayIconManager : IDisposable
             else if (_activityLogger.IsTrackingPaused())
             {
                 _notifyIcon.Text = "TimeTracker: Paused";
-                _notifyIcon.Icon = SystemIcons.Warning; // Yellow-ish icon
+                _notifyIcon.Icon = SystemIcons.Warning; // Yellow-ish icon for paused
 
                 _startTrackingMenuItem.Enabled = true;
                 _pauseTrackingMenuItem.Enabled = false;
@@ -190,7 +251,7 @@ public class TrayIconManager : IDisposable
             else
             {
                 _notifyIcon.Text = "TimeTracker: Inactive";
-                _notifyIcon.Icon = SystemIcons.Application; // Default icon
+                _notifyIcon.Icon = LoadApplicationIcon(); // Use app icon for inactive state
 
                 _startTrackingMenuItem.Enabled = true;
                 _pauseTrackingMenuItem.Enabled = false;
@@ -212,8 +273,15 @@ public class TrayIconManager : IDisposable
         {
             if (e.Button == MouseButtons.Left)
             {
-                // Left click - show status overlay
-                ShowStatusOverlay();
+                // Left click - show main window if available, otherwise show status overlay
+                if (_mainForm != null)
+                {
+                    _mainForm.ShowForm();
+                }
+                else
+                {
+                    ShowStatusOverlay();
+                }
             }
             // Right click is handled automatically by ContextMenuStrip
         }
@@ -358,6 +426,32 @@ public class TrayIconManager : IDisposable
     }
 
     /// <summary>
+    /// Event handler for Show Main Window menu item
+    /// </summary>
+    private void OnShowMainWindow(object? sender, EventArgs e)
+    {
+        try
+        {
+            _logger.LogInformation("User requested to show main window");
+
+            if (_mainForm != null)
+            {
+                _mainForm.ShowForm();
+            }
+            else
+            {
+                _logger.LogWarning("Main form is not set");
+                MessageBox.Show("Main window is not available.", "TimeTracker",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error showing main window");
+        }
+    }
+
+    /// <summary>
     /// Event handler for Exit menu item
     /// </summary>
     private void OnExit(object? sender, EventArgs e)
@@ -372,12 +466,44 @@ public class TrayIconManager : IDisposable
 
             if (result == DialogResult.Yes)
             {
-                Application.Exit();
+                // If main form is available, use its exit method for clean shutdown
+                if (_mainForm != null)
+                {
+                    _mainForm.ExitApplication();
+                }
+                else
+                {
+                    Application.Exit();
+                }
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error during application exit");
+        }
+    }
+
+    /// <summary>
+    /// Sets the main form reference for tray icon integration
+    /// </summary>
+    public void SetMainForm(MainForm mainForm)
+    {
+        _mainForm = mainForm ?? throw new ArgumentNullException(nameof(mainForm));
+        _logger.LogInformation("Main form reference set in TrayIconManager");
+    }
+
+    /// <summary>
+    /// Shows a balloon tip notification
+    /// </summary>
+    public void ShowBalloonTip(string title, string text, ToolTipIcon icon)
+    {
+        try
+        {
+            _notifyIcon.ShowBalloonTip(5000, title, text, icon);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error showing balloon tip");
         }
     }
 
