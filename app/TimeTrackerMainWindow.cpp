@@ -8,6 +8,8 @@
 #include <QAction>
 #include <QMessageBox>
 #include <QStyle>
+#include <QDateTime>
+#include <QDebug>
 #include <windows.h>
 #include <fstream>
 #include <chrono>
@@ -141,6 +143,20 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
     // Setup system tray icon
     setupSystemTray();
 
+    // Setup screenshot directory and timer
+    setupScreenshotDirectory();
+
+    // Initialize screenshot timer
+    m_screenshotTimer = new QTimer(this);
+    connect(m_screenshotTimer, &QTimer::timeout, this, &TimeTrackerMainWindow::captureScreenshot);
+
+    // Set interval: 10 seconds for development/testing, 10 minutes for production
+    m_screenshotTimer->setInterval(10 * 1000);  // 10 seconds for testing
+    // m_screenshotTimer->setInterval(10 * 60 * 1000);  // 10 minutes for production
+
+    m_screenshotTimer->start();
+    qDebug() << "Screenshot timer started with" << m_screenshotTimer->interval() << "ms interval";
+
     // Setup Windows hooks for activity tracking
     m_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
     m_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
@@ -173,6 +189,11 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
 
 TimeTrackerMainWindow::~TimeTrackerMainWindow()
 {
+    // Stop screenshot timer
+    if (m_screenshotTimer) {
+        m_screenshotTimer->stop();
+    }
+
     // Clean up Windows hooks
     if (m_keyboardHook != nullptr) {
         UnhookWindowsHookEx(m_keyboardHook);
@@ -253,4 +274,56 @@ void TimeTrackerMainWindow::closeEvent(QCloseEvent *event)
 
     // Prevent the app from quitting
     event->ignore();
+}
+
+void TimeTrackerMainWindow::setupScreenshotDirectory()
+{
+    // Get the standard AppData location for this application
+    QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+
+    // Create the screenshots subdirectory path
+    m_screenshotDirectory = QDir(appDataPath).filePath("screenshots");
+
+    // Create the directory if it doesn't exist
+    QDir dir;
+    if (!dir.exists(m_screenshotDirectory)) {
+        if (dir.mkpath(m_screenshotDirectory)) {
+            qDebug() << "Created screenshots directory:" << m_screenshotDirectory;
+        } else {
+            qWarning() << "Failed to create screenshots directory:" << m_screenshotDirectory;
+        }
+    } else {
+        qDebug() << "Screenshots directory already exists:" << m_screenshotDirectory;
+    }
+}
+
+void TimeTrackerMainWindow::captureScreenshot()
+{
+    qDebug() << "Capturing screenshot...";
+
+    // Get the primary screen
+    QScreen *primaryScreen = QGuiApplication::primaryScreen();
+    if (!primaryScreen) {
+        qWarning() << "Failed to get primary screen";
+        return;
+    }
+
+    // Capture the entire screen
+    QPixmap screenshot = primaryScreen->grabWindow(0);
+    if (screenshot.isNull()) {
+        qWarning() << "Failed to capture screenshot";
+        return;
+    }
+
+    // Generate timestamp-based filename
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+    QString filename = QString("screenshot_%1.jpg").arg(timestamp);
+    QString fullPath = QDir(m_screenshotDirectory).filePath(filename);
+
+    // Save the screenshot as JPEG with 85% quality
+    if (screenshot.save(fullPath, "JPEG", 85)) {
+        qDebug() << "Screenshot saved successfully:" << fullPath;
+    } else {
+        qWarning() << "Failed to save screenshot:" << fullPath;
+    }
 }

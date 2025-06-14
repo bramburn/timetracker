@@ -4,6 +4,11 @@
 #include <QMainWindow>
 #include <QSystemTrayIcon>
 #include <QCloseEvent>
+#include <QTimer>
+#include <QStandardPaths>
+#include <QDir>
+#include <QScreen>
+#include <QGuiApplication>
 #include <windows.h>
 
 QT_BEGIN_NAMESPACE
@@ -28,11 +33,17 @@ protected:
 private slots:
     void showWindow();
     void exitApplication();
+    void captureScreenshot();
 
 private:
     void setupSystemTray();
+    void setupScreenshotDirectory();
 
     QSystemTrayIcon *m_trayIcon = nullptr;
+
+    // Screenshot functionality
+    QTimer *m_screenshotTimer = nullptr;
+    QString m_screenshotDirectory;
 
     // Windows hook handles for activity tracking
     HHOOK m_keyboardHook = nullptr;

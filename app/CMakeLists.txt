@@ -44,12 +44,13 @@ target_link_libraries(TimeTrackerLib PUBLIC
     Qt6::Widgets
 )
 
-# # Link Windows libraries for API hooks (Windows-specific)
-# if(WIN32)
-#     target_link_libraries(TimeTrackerLib PUBLIC
-#         User32
-#     )
-# endif()
+# Link Windows libraries for API hooks and screenshot capture (Windows-specific)
+if(WIN32)
+    target_link_libraries(TimeTrackerLib PUBLIC
+        User32.lib
+        Gdi32.lib
+    )
+endif()
 
 # Set include directories for the library
 target_include_directories(TimeTrackerLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
