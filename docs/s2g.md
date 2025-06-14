@@ -234,3 +234,200 @@ This validates your ability to capture system-wide input and lays the groundwork
 [1] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/35208055/e19792e0-3642-47e4-a168-b98c97aadb40/Sprint2.md
 [2] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_59dddd7d-a43e-4981-8f37-8f1d5f4c9bdc/39178ad2-15a6-4478-bf2f-d68b85feb663/paste.txt
 [3] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_59dddd7d-a43e-4981-8f37-8f1d5f4c9bdc/4f544544-aaa8-49e7-aeb7-0a8f03e3efd0/how-does-3dsurvey-software-app-wUW6gHbzTGSnOP8HJzfduA.md
+
+Based on the PRD documentation, here's the complete implementation for **Sprint 3: Proof-of-Concept Activity Logging to File**[1][2]:
+
+## **Sprint 3 Implementation Overview**
+
+This sprint validates the core Windows API hooking mechanism by implementing basic keyboard and mouse event logging to a local file[2].
+
+**1. Updated Header File (TimeTrackerMainWindow.h)**
+```cpp
+#pragma once
+#include 
+#include 
+#include 
+#include 
+#include 
+#include 
+
+class TimeTrackerMainWindow : public QMainWindow {
+    Q_OBJECT
+
+public:
+    explicit TimeTrackerMainWindow(QWidget *parent = nullptr);
+    ~TimeTrackerMainWindow();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
+
+private slots:
+    void toggleWindowVisibility();
+    void onTrayIconActivated(QSystemTrayIcon::ActivationReason reason);
+
+private:
+    void createTrayIcon();
+    void createActions();
+    
+    // UI Components
+    QSystemTrayIcon *m_trayIcon;
+    QMenu *m_trayMenu;
+    QAction *m_showHideAction;
+    QAction *m_quitAction;
+    
+    // Windows API Hook Handles
+    HHOOK m_keyboardHook = nullptr;
+    HHOOK m_mouseHook = nullptr;
+    
+    // Static callback functions for Windows hooks
+    static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+};
+```
+
+**2. Implementation File (TimeTrackerMainWindow.cpp)**
+```cpp
+#include "TimeTrackerMainWindow.h"
+#include 
+#include 
+#include 
+#include 
+#include 
+#include 
+#include 
+
+TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
+    : QMainWindow(parent) {
+    setWindowTitle("Time Tracker Application");
+    setFixedSize(400, 300);
+    
+    createActions();
+    createTrayIcon();
+    
+    // Install Windows API hooks for system-wide monitoring
+    m_keyboardHook = SetWindowsHookExW(
+        WH_KEYBOARD_LL,
+        LowLevelKeyboardProc,
+        GetModuleHandle(nullptr),
+        0
+    );
+    
+    m_mouseHook = SetWindowsHookExW(
+        WH_MOUSE_LL,
+        LowLevelMouseProc,
+        GetModuleHandle(nullptr),
+        0
+    );
+    
+    if (!m_keyboardHook) {
+        qCritical() isVisible()) {
+        hide();
+        event->ignore();
+        m_trayIcon->showMessage(
+            "Time Tracker is Active",
+            "The application continues to run in the background.",
+            QSystemTrayIcon::Information,
+            3000
+        );
+    }
+}
+
+// Static callback for keyboard events
+LRESULT CALLBACK TimeTrackerMainWindow::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
+    if (nCode == HC_ACTION) {
+        KBDLLHOOKSTRUCT* keyboardStruct = reinterpret_cast(lParam);
+        
+        // Get current timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast(
+            now.time_since_epoch()) % 1000;
+        
+        std::stringstream timestamp;
+        timestamp vkCode (lParam);
+        
+        // Get current timestamp
+        auto now = std::chrono::system_clock::now();
+        auto time_t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast(
+            now.time_since_epoch()) % 1000;
+        
+        std::stringstream timestamp;
+        timestamp pt.x pt.y addAction(m_showHideAction);
+    m_trayMenu->addSeparator();
+    m_trayMenu->addAction(m_quitAction);
+
+    m_trayIcon = new QSystemTrayIcon(this);
+    m_trayIcon->setContextMenu(m_trayMenu);
+    m_trayIcon->setIcon(QIcon(":/icons/tray_icon.png"));
+    m_trayIcon->show();
+
+    connect(m_trayIcon, &QSystemTrayIcon::activated, 
+            this, &TimeTrackerMainWindow::onTrayIconActivated);
+}
+
+void TimeTrackerMainWindow::onTrayIconActivated(QSystemTrayIcon::ActivationReason reason) {
+    if (reason == QSystemTrayIcon::DoubleClick) {
+        showNormal();
+    }
+}
+```
+
+**3. Updated CMakeLists.txt**
+```cmake
+cmake_minimum_required(VERSION 3.16)
+project(TimeTrackerApp LANGUAGES CXX)
+
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
+set(CMAKE_CXX_STANDARD 17)
+
+find_package(Qt6 REQUIRED COMPONENTS Widgets)
+
+add_executable(TimeTrackerApp
+    main.cpp
+    TimeTrackerMainWindow.cpp
+    TimeTrackerMainWindow.h
+)
+
+target_link_libraries(TimeTrackerApp PRIVATE
+    Qt6::Widgets
+    User32.lib  # Required for Windows API hooks
+)
+
+# Include resources for tray icon
+qt_add_resources(TimeTrackerApp "resources"
+    PREFIX "/"
+    FILES
+        icons/tray_icon.png
+)
+```
+
+## **Key Implementation Details**
+
+**Windows API Components Used:**
+- `SetWindowsHookExW()`: Installs low-level keyboard/mouse hooks[2]
+- `WH_KEYBOARD_LL`/`WH_MOUSE_LL`: Hook types for global input monitoring[2]
+- `KBDLLHOOKSTRUCT`/`MSLLHOOKSTRUCT`: Structs containing event details[2]
+- `CallNextHookEx()`: Passes events to next hook in chain[2]
+
+**Testing Protocol:**
+1. **Verify Log File Creation**: Run application and confirm `activity_log.txt` appears[2]
+2. **Test Cross-Application Tracking**: Type in Notepad, browser, etc. - all should log[2]
+3. **Mouse Event Validation**: Click, scroll, right-click across different windows[2]
+4. **UI Responsiveness**: Ensure main window remains functional during logging[2]
+
+**Expected Log Output:**
+```
+2025-06-14 21:14:23.456 - KEY_DOWN - VK_CODE: 72
+2025-06-14 21:14:23.467 - KEY_UP - VK_CODE: 72
+2025-06-14 21:14:24.123 - MOUSE_LEFT_DOWN - POS: (342,156)
+2025-06-14 21:14:24.134 - MOUSE_LEFT_UP - POS: (342,156)
+```
+
+This implementation successfully validates the Windows API hooking mechanism required for the full time-tracking system while maintaining Qt6's cross-platform architecture[1][2].
+
+[1] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/35208055/a25a2d4a-3383-4864-9be6-453155cda6fa/prd0.md
+[2] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/35208055/6e8bf437-dc5d-4fd5-ae3a-50b45f2bb41d/Sprint2.md
+[3] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/attachments/35208055/177dac62-5df9-48ec-806b-2d11bb1a28db/prd1.md
+[4] https://ppl-ai-file-upload.s3.amazonaws.com/web/direct-files/collection_82368f44-3b85-4ad4-9901-c96324d445f3/b9226a62-9487-4ef0-abdb-55b9bfca8fb4/other-than-csharp-net-is-there-_oaIW2tbTxOPVA4jFigSXQ.md

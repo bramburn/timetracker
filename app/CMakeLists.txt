@@ -44,6 +44,13 @@ target_link_libraries(TimeTrackerLib PUBLIC
     Qt6::Widgets
 )
 
+# # Link Windows libraries for API hooks (Windows-specific)
+# if(WIN32)
+#     target_link_libraries(TimeTrackerLib PUBLIC
+#         User32
+#     )
+# endif()
+
 # Set include directories for the library
 target_include_directories(TimeTrackerLib PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
@@ -111,21 +118,64 @@ if(WIN32)
         $<TARGET_FILE_DIR:TimeTrackerTests>
     )
 
-    # Copy Qt platform plugins for tests
+    # Copy Qt platform plugins for tests - improved with error handling
     add_custom_command(TARGET TimeTrackerTests POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
         $<TARGET_FILE_DIR:TimeTrackerTests>/platforms
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "C:/Qt/6.9.0/msvc2022_64/plugins/platforms/qwindows.dll"
+        "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows.dll"
         $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_PREFIX_PATH}/plugins/platforms/qminimal.dll"
+        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_PREFIX_PATH}/plugins/platforms/qoffscreen.dll"
+        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+        COMMENT "Copying Qt platform plugins for tests"
     )
 
-    # Copy Qt platform plugins for main app
-    add_custom_command(TARGET TimeTrackerApp POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:TimeTrackerApp>/platforms
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "C:/Qt/6.9.0/msvc2022_64/plugins/platforms/qwindows.dll"
-        $<TARGET_FILE_DIR:TimeTrackerApp>/platforms/
-    )
+    # Use windeployqt for proper Qt deployment (most reliable method)
+    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS ${CMAKE_PREFIX_PATH}/bin)
+
+    if(WINDEPLOYQT_EXECUTABLE)
+        add_custom_command(TARGET TimeTrackerApp POST_BUILD
+            COMMAND ${WINDEPLOYQT_EXECUTABLE} --debug --compiler-runtime $<TARGET_FILE:TimeTrackerApp>
+            COMMENT "Deploying Qt libraries and plugins using windeployqt"
+        )
+        message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")
+    else()
+        message(WARNING "windeployqt not found, falling back to manual plugin copying")
+
+        # Fallback: Copy Qt platform plugins manually
+        add_custom_command(TARGET TimeTrackerApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:TimeTrackerApp>/platforms
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/platforms/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qminimal.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/platforms/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qoffscreen.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/platforms/
+            COMMENT "Copying Qt platform plugins manually"
+        )
+
+        # Copy additional Qt plugins that might be needed
+        add_custom_command(TARGET TimeTrackerApp POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:TimeTrackerApp>/imageformats
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/imageformats/qico.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/imageformats/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/imageformats/qjpeg.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/imageformats/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/imageformats/qpng.dll"
+            $<TARGET_FILE_DIR:TimeTrackerApp>/imageformats/
+            COMMENT "Copying Qt image format plugins"
+        )
+    endif()
 endif()
