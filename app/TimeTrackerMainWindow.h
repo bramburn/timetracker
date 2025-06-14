@@ -3,6 +3,8 @@
 
 #include <QMainWindow>
 #include <QSystemTrayIcon>
+#include <QCloseEvent>
+#include <windows.h>
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -18,6 +20,10 @@ class TimeTrackerMainWindow : public QMainWindow
 
 public:
     TimeTrackerMainWindow(QWidget *parent = nullptr);
+    ~TimeTrackerMainWindow();
+
+protected:
+    void closeEvent(QCloseEvent *event) override;
 
 private slots:
     void showWindow();
@@ -27,6 +33,10 @@ private:
     void setupSystemTray();
 
     QSystemTrayIcon *m_trayIcon = nullptr;
+
+    // Windows hook handles for activity tracking
+    HHOOK m_keyboardHook = nullptr;
+    HHOOK m_mouseHook = nullptr;
 };
 
 #endif // TIMETRACKERMAINWINDOW_H
