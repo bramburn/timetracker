@@ -38,27 +38,31 @@ if not exist "%APP_PATH%\platforms" (
 )
 
 echo.
-echo Copying Qt platform plugins...
+echo Using windeployqt for proper Qt deployment...
+if exist "%APP_PATH%\TimeTrackerApp.exe" (
+    "%QT_PATH%\bin\windeployqt.exe" --debug --compiler-runtime --force "%APP_PATH%\TimeTrackerApp.exe"
+    if %errorlevel% equ 0 (
+        echo Successfully deployed Qt libraries and plugins
+    ) else (
+        echo WARNING: windeployqt failed, falling back to manual copy
+        goto MANUAL_COPY
+    )
+) else (
+    echo WARNING: TimeTrackerApp.exe not found, using manual copy
+    goto MANUAL_COPY
+)
+goto SKIP_MANUAL
+
+:MANUAL_COPY
+echo.
+echo Copying Qt platform plugins manually...
 copy "%QT_PATH%\plugins\platforms\qwindows.dll" "%APP_PATH%\platforms\" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Copied qwindows.dll
-) else (
-    echo WARNING: Failed to copy qwindows.dll
-)
-
+copy "%QT_PATH%\plugins\platforms\qwindowsd.dll" "%APP_PATH%\platforms\" >nul 2>&1
 copy "%QT_PATH%\plugins\platforms\qminimal.dll" "%APP_PATH%\platforms\" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Copied qminimal.dll
-) else (
-    echo WARNING: Failed to copy qminimal.dll
-)
-
 copy "%QT_PATH%\plugins\platforms\qoffscreen.dll" "%APP_PATH%\platforms\" >nul 2>&1
-if %errorlevel% equ 0 (
-    echo Copied qoffscreen.dll
-) else (
-    echo WARNING: Failed to copy qoffscreen.dll
-)
+echo Copied platform plugins (both debug and release versions)
+
+:SKIP_MANUAL
 
 echo.
 echo Clearing potentially conflicting environment variables...

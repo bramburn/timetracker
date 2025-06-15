@@ -300,7 +300,12 @@ if(WIN32)
 
     if(WINDEPLOYQT_EXECUTABLE)
         add_custom_command(TARGET TimeTrackerApp POST_BUILD
-            COMMAND ${WINDEPLOYQT_EXECUTABLE} --debug --compiler-runtime $<TARGET_FILE:TimeTrackerApp>
+            COMMAND ${WINDEPLOYQT_EXECUTABLE}
+                $<$<CONFIG:Debug>:--debug>
+                $<$<CONFIG:Release>:--release>
+                --compiler-runtime
+                --force
+                $<TARGET_FILE:TimeTrackerApp>
             COMMENT "Deploying Qt libraries and plugins using windeployqt"
         )
         message(STATUS "Found windeployqt: ${WINDEPLOYQT_EXECUTABLE}")

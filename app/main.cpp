@@ -36,15 +36,34 @@ int main(int argc, char *argv[])
         return 1;
     }
 
-    // Check if qwindows.dll exists
-    QString qwindowsPath = platformsPath + "/qwindows.dll";
+    // Check if qwindows.dll exists (debug or release version)
+    QString qwindowsPath;
+#ifdef _DEBUG
+    qwindowsPath = platformsPath + "/qwindowsd.dll";  // Debug version
+#else
+    qwindowsPath = platformsPath + "/qwindows.dll";   // Release version
+#endif
+    
     if (!QFile::exists(qwindowsPath)) {
-        qWarning() << "qwindows.dll not found at:" << qwindowsPath;
-        QMessageBox::critical(nullptr, "Platform Plugin Error",
-            QString("qwindows.dll not found at:\n%1\n\n"
-                   "Please run fix-qt-plugins.bat or fix-qt-platform-plugins.ps1 to fix this issue.")
-                   .arg(qwindowsPath));
-        return 1;
+        qWarning() << "Qt platform plugin not found at:" << qwindowsPath;
+        
+        // Try the other version as fallback
+        QString fallbackPath;
+#ifdef _DEBUG
+        fallbackPath = platformsPath + "/qwindows.dll";
+#else
+        fallbackPath = platformsPath + "/qwindowsd.dll";
+#endif
+        
+        if (QFile::exists(fallbackPath)) {
+            qDebug() << "Found fallback platform plugin at:" << fallbackPath;
+        } else {
+            QMessageBox::critical(nullptr, "Platform Plugin Error",
+                QString("Qt platform plugin not found at:\n%1\n\n"
+                       "Please run fix-qt-plugins.bat or fix-qt-platform-plugins.ps1 to fix this issue.")
+                       .arg(qwindowsPath));
+            return 1;
+        }
     }
 
     try {
