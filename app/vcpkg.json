@@ -1,7 +1,17 @@
 {
     "name": "time-tracker-app",
     "version-string": "1.0.0",
+    "description": "Time Tracker Desktop Application - C++/Qt6 with Google Test integration",
+    "homepage": "https://github.com/bramburn/timetracker",
     "dependencies": [
         "gtest"
-    ]
+    ],
+    "features": {
+        "tests": {
+            "description": "Build with testing support",
+            "dependencies": [
+                "gtest"
+            ]
+        }
+    }
 }

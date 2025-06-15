@@ -1,0 +1,195 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ master, main, develop ]
+  pull_request:
+    branches: [ master, main ]
+
+env:
+  BUILD_TYPE: Debug
+  QT_VERSION: 6.9.0
+  VCPKG_BINARY_SOURCES: "clear;x-gha,readwrite"
+
+jobs:
+  test:
+    name: Build and Test on Windows
+    runs-on: windows-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Setup vcpkg
+      uses: microsoft/setup-msbuild@v2
+
+    - name: Export GitHub Actions cache environment variables
+      uses: actions/github-script@v7
+      with:
+        script: |
+          core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+          core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: windows
+        target: desktop
+        arch: win64_msvc2022_64
+        modules: 'qtbase qttools'
+        cache: true
+
+    - name: Setup vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+        C:\vcpkg\bootstrap-vcpkg.bat
+        C:\vcpkg\vcpkg integrate install
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+        echo "CMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
+
+    - name: Install dependencies via vcpkg
+      working-directory: app
+      run: |
+        C:\vcpkg\vcpkg install --triplet x64-windows
+
+    - name: Configure CMake
+      working-directory: app
+      run: |
+        cmake --preset vcpkg-qt -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }}
+
+    - name: Build Application
+      working-directory: app
+      run: |
+        cmake --build . --config ${{ env.BUILD_TYPE }} --parallel
+
+    - name: Run Tests
+      working-directory: app
+      run: |
+        ctest --build-config ${{ env.BUILD_TYPE }} --output-on-failure --verbose
+      env:
+        QT_QPA_PLATFORM: offscreen
+
+    - name: Upload Test Results
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: test-results-${{ github.run_number }}
+        path: |
+          app/Testing/
+          app/bin/
+        retention-days: 30
+
+    - name: Upload Build Artifacts
+      uses: actions/upload-artifact@v4
+      if: success()
+      with:
+        name: timetracker-build-${{ github.run_number }}
+        path: |
+          app/bin/
+          !app/bin/**/*.pdb
+        retention-days: 7
+
+  code-quality:
+    name: Code Quality Analysis
+    runs-on: windows-latest
+    needs: test
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install Qt
+      uses: jurplel/install-qt-action@v4
+      with:
+        version: ${{ env.QT_VERSION }}
+        host: windows
+        target: desktop
+        arch: win64_msvc2022_64
+        modules: 'qtbase qttools'
+        cache: true
+
+    - name: Setup vcpkg
+      run: |
+        git clone https://github.com/Microsoft/vcpkg.git C:\vcpkg
+        C:\vcpkg\bootstrap-vcpkg.bat
+        echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+
+    - name: Install dependencies
+      working-directory: app
+      run: |
+        C:\vcpkg\vcpkg install --triplet x64-windows
+
+    - name: Configure with Coverage
+      working-directory: app
+      run: |
+        cmake --preset vcpkg-qt -DCMAKE_BUILD_TYPE=Debug -DENABLE_COVERAGE=ON
+
+    - name: Build with Coverage
+      working-directory: app
+      run: |
+        cmake --build . --config Debug
+
+    - name: Run Tests with Coverage
+      working-directory: app
+      run: |
+        ctest --build-config Debug --output-on-failure
+      env:
+        QT_QPA_PLATFORM: offscreen
+
+  documentation:
+    name: Generate Documentation
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Setup Documentation Tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y doxygen graphviz
+
+    - name: Generate Documentation
+      working-directory: app
+      run: |
+        # Create basic Doxyfile if it doesn't exist
+        if [ ! -f Doxyfile ]; then
+          doxygen -g
+          sed -i 's/PROJECT_NAME           = "My Project"/PROJECT_NAME           = "TimeTracker"/' Doxyfile
+          sed -i 's/INPUT                  =/INPUT                  = . tests/' Doxyfile
+          sed -i 's/RECURSIVE              = NO/RECURSIVE              = YES/' Doxyfile
+          sed -i 's/GENERATE_HTML          = YES/GENERATE_HTML          = YES/' Doxyfile
+          sed -i 's/HTML_OUTPUT            = html/HTML_OUTPUT            = docs/' Doxyfile
+        fi
+        doxygen
+
+    - name: Upload Documentation
+      uses: actions/upload-artifact@v4
+      with:
+        name: documentation-${{ github.run_number }}
+        path: app/docs/
+        retention-days: 30
+
+  notify:
+    name: Notification
+    runs-on: ubuntu-latest
+    needs: [test, code-quality]
+    if: always()
+    
+    steps:
+    - name: Notify Success
+      if: needs.test.result == 'success' && needs.code-quality.result == 'success'
+      run: |
+        echo "✅ All tests passed successfully!"
+        echo "Build artifacts and test results are available in the Actions tab."
+
+    - name: Notify Failure
+      if: needs.test.result == 'failure' || needs.code-quality.result == 'failure'
+      run: |
+        echo "❌ Some tests failed!"
+        echo "Please check the test results and fix any issues."
+        exit 1

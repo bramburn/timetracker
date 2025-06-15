@@ -1,0 +1,5 @@
+if(EXISTS "C:/dev/timetracker/app/TimeTrackerTests[1]_tests.cmake")
+  include("C:/dev/timetracker/app/TimeTrackerTests[1]_tests.cmake")
+else()
+  add_test(TimeTrackerTests_NOT_BUILT TimeTrackerTests_NOT_BUILT)
+endif()

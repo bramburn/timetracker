@@ -1,0 +1,56 @@
+{
+    "version": 3,
+    "configurePresets": [
+        {
+            "name": "vcpkg-qt-user",
+            "displayName": "User-specific vcpkg + Qt6 Configuration",
+            "description": "Local user configuration that inherits from vcpkg-qt preset",
+            "inherits": "vcpkg-qt",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            },
+            "environment": {
+                "QT_LOGGING_RULES": "*.debug=false;qt.qpa.plugin=false"
+            }
+        },
+        {
+            "name": "vcpkg-qt-user-release",
+            "displayName": "User-specific Release Configuration",
+            "description": "Local user release configuration",
+            "inherits": "vcpkg-qt",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "vcpkg-qt-user-debug",
+            "displayName": "User Debug Build",
+            "configurePreset": "vcpkg-qt-user",
+            "configuration": "Debug"
+        },
+        {
+            "name": "vcpkg-qt-user-release-build",
+            "displayName": "User Release Build", 
+            "configurePreset": "vcpkg-qt-user-release",
+            "configuration": "Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "vcpkg-qt-user-test",
+            "displayName": "User Test Configuration",
+            "configurePreset": "vcpkg-qt-user",
+            "output": {
+                "outputOnFailure": true,
+                "verbosity": "verbose"
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": false
+            }
+        }
+    ]
+}
