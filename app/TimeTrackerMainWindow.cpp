@@ -1,4 +1,5 @@
 #include "TimeTrackerMainWindow.h"
+#include "ApiService.h"
 #include <QApplication>
 #include <QLabel>
 #include <QVBoxLayout>
@@ -17,6 +18,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <Psapi.h>
 
 // Static callback functions for Windows hooks
 static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
@@ -148,6 +150,31 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
     setupScreenshotDirectory();
     configureScreenshotTimer();
 
+    // Setup application tracking timer
+    configureAppTracker();
+
+    // Initialize API service for backend communication
+    m_apiService = new ApiService(this);
+
+    // Connect API service signals
+    connect(m_apiService, &ApiService::screenshotUploaded,
+            this, [this](bool success, const QString& filePath) {
+                if (success) {
+                    qDebug() << "Screenshot upload completed:" << filePath;
+                } else {
+                    qWarning() << "Screenshot upload failed:" << filePath;
+                }
+            });
+
+    connect(m_apiService, &ApiService::activityLogsUploaded,
+            this, [this](bool success) {
+                if (success) {
+                    qDebug() << "Activity logs upload completed successfully";
+                } else {
+                    qWarning() << "Activity logs upload failed";
+                }
+            });
+
     // Setup Windows hooks for activity tracking
     m_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
     m_mouseHook = SetWindowsHookExW(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(NULL), 0);
@@ -184,6 +211,12 @@ TimeTrackerMainWindow::~TimeTrackerMainWindow()
     if (m_screenshotTimer) {
         m_screenshotTimer->stop();
         qDebug() << "Screenshot timer stopped";
+    }
+
+    // Stop application tracking timer
+    if (m_appTrackerTimer) {
+        m_appTrackerTimer->stop();
+        qDebug() << "Application tracking timer stopped";
     }
 
     // Clean up Windows hooks
@@ -321,6 +354,120 @@ void TimeTrackerMainWindow::configureScreenshotTimer()
     qDebug() << "  Directory:" << m_screenshotDirectory;
 }
 
+void TimeTrackerMainWindow::configureAppTracker()
+{
+    // Initialize application tracking timer
+    m_appTrackerTimer = new QTimer(this);
+    connect(m_appTrackerTimer, &QTimer::timeout, this, &TimeTrackerMainWindow::trackActiveApplication);
+
+    // Set 5-second interval as specified in Sprint 6 requirements
+    m_appTrackerTimer->setInterval(5 * 1000);
+    m_appTrackerTimer->start();
+
+    qDebug() << "Application tracking timer configured and started:";
+    qDebug() << "  Interval: 5 seconds";
+    qDebug() << "  Tracking active window and process name changes";
+}
+
+void TimeTrackerMainWindow::trackActiveApplication()
+{
+    // Get the handle to the foreground window
+    HWND foregroundWindow = GetForegroundWindow();
+    if (foregroundWindow == NULL) {
+        // No foreground window (e.g., desktop focus) - handle gracefully
+        QString currentWindowTitle = "Desktop/No Active Window";
+        QString currentProcessName = "Desktop";
+
+        // Check if this is different from last known state
+        if (currentWindowTitle != m_lastWindowTitle || currentProcessName != m_lastProcessName) {
+            // Log the desktop focus state
+            std::ofstream logFile("activity_log.txt", std::ios::app);
+            if (logFile.is_open()) {
+                // Get current timestamp with milliseconds
+                auto now = std::chrono::system_clock::now();
+                std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+                std::tm tm;
+                localtime_s(&tm, &now_c);
+                auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    now.time_since_epoch()) % 1000;
+
+                std::stringstream timestamp;
+                timestamp << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "."
+                         << std::setfill('0') << std::setw(3) << milliseconds.count();
+
+                logFile << timestamp.str() << " - ACTIVE_APP - PROCESS: " << currentProcessName.toStdString()
+                       << " - TITLE: " << currentWindowTitle.toStdString() << std::endl;
+                logFile.close();
+            }
+
+            // Update last known state
+            m_lastWindowTitle = currentWindowTitle;
+            m_lastProcessName = currentProcessName;
+
+            qDebug() << "Active application changed to:" << currentProcessName << "-" << currentWindowTitle;
+        }
+        return;
+    }
+
+    // Get the window title
+    wchar_t windowTitle[256];
+    int titleLength = GetWindowTextW(foregroundWindow, windowTitle, sizeof(windowTitle) / sizeof(wchar_t));
+    QString currentWindowTitle = QString::fromWCharArray(windowTitle, titleLength);
+
+    // Get the process ID from the window handle
+    DWORD processId;
+    GetWindowThreadProcessId(foregroundWindow, &processId);
+
+    // Open the process to get more information
+    HANDLE processHandle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, processId);
+    QString currentProcessName = "Unknown";
+
+    if (processHandle != NULL) {
+        // Get the full path of the executable
+        wchar_t processPath[MAX_PATH];
+        DWORD pathSize = MAX_PATH;
+
+        if (QueryFullProcessImageNameW(processHandle, 0, processPath, &pathSize)) {
+            QString fullPath = QString::fromWCharArray(processPath);
+            // Extract just the executable name from the full path
+            QFileInfo fileInfo(fullPath);
+            currentProcessName = fileInfo.fileName();
+        }
+
+        // Close the process handle
+        CloseHandle(processHandle);
+    }
+
+    // Check if the current window title or process name has changed
+    if (currentWindowTitle != m_lastWindowTitle || currentProcessName != m_lastProcessName) {
+        // Log the application change
+        std::ofstream logFile("activity_log.txt", std::ios::app);
+        if (logFile.is_open()) {
+            // Get current timestamp with milliseconds
+            auto now = std::chrono::system_clock::now();
+            std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+            std::tm tm;
+            localtime_s(&tm, &now_c);
+            auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now.time_since_epoch()) % 1000;
+
+            std::stringstream timestamp;
+            timestamp << std::put_time(&tm, "%Y-%m-%d %H:%M:%S") << "."
+                     << std::setfill('0') << std::setw(3) << milliseconds.count();
+
+            logFile << timestamp.str() << " - ACTIVE_APP - PROCESS: " << currentProcessName.toStdString()
+                   << " - TITLE: " << currentWindowTitle.toStdString() << std::endl;
+            logFile.close();
+        }
+
+        // Update last known state
+        m_lastWindowTitle = currentWindowTitle;
+        m_lastProcessName = currentProcessName;
+
+        qDebug() << "Active application changed to:" << currentProcessName << "-" << currentWindowTitle;
+    }
+}
+
 void TimeTrackerMainWindow::captureScreenshot()
 {
     QMutexLocker locker(&m_screenshotMutex);
@@ -350,9 +497,31 @@ void TimeTrackerMainWindow::captureScreenshot()
         qDebug() << "Screenshot saved successfully:" << fullPath
                  << "Size:" << screenshot.size()
                  << "Quality:" << m_jpegQuality << "%";
+
+        // Upload screenshot to server
+        if (m_apiService) {
+            QString userId = getCurrentUserEmail();
+            QString sessionId = getCurrentSessionId();
+            m_apiService->uploadScreenshot(fullPath, userId, sessionId);
+        }
     } else {
         qWarning() << "Failed to save screenshot:" << fullPath;
         qWarning() << "Directory exists:" << QDir(m_screenshotDirectory).exists();
         qWarning() << "Directory writable:" << QFileInfo(m_screenshotDirectory).isWritable();
     }
+}
+
+QString TimeTrackerMainWindow::getCurrentUserEmail()
+{
+    // For now, return a placeholder email
+    // In a real implementation, this would get the actual user email from system or configuration
+    return "current_user@company.com";
+}
+
+QString TimeTrackerMainWindow::getCurrentSessionId()
+{
+    // For now, return a simple session ID
+    // In a real implementation, this would be a unique session identifier
+    static QString sessionId = QString::number(QDateTime::currentSecsSinceEpoch());
+    return sessionId;
 }

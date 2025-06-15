@@ -54,7 +54,7 @@ endif()
 set(CMAKE_PREFIX_PATH "C:/Qt/6.9.0/msvc2022_64")
 
 # Find required Qt6 components
-find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test Network)
 
 # Enable Qt MOC, UIC, and RCC
 set(CMAKE_AUTOMOC ON)
@@ -136,6 +136,8 @@ endif()
 add_library(TimeTrackerLib STATIC
     TimeTrackerMainWindow.h
     TimeTrackerMainWindow.cpp
+    ApiService.h
+    ApiService.cpp
 )
 
 # Link Qt6 libraries to the library
@@ -143,6 +145,7 @@ target_link_libraries(TimeTrackerLib PUBLIC
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    Qt6::Network
 )
 
 # Link Windows libraries for API hooks and screenshot capture (Windows-specific)
@@ -150,6 +153,7 @@ if(WIN32)
     target_link_libraries(TimeTrackerLib PUBLIC
         User32.lib
         Gdi32.lib
+        Psapi.lib      # Required for QueryFullProcessImageNameW (Sprint 6)
     )
 endif()
 
