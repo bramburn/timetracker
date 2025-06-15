@@ -10,6 +10,7 @@
 #include <QStyle>
 #include <QDateTime>
 #include <QDebug>
+#include <QFileInfo>
 #include <windows.h>
 #include <fstream>
 #include <chrono>
@@ -145,17 +146,7 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
 
     // Setup screenshot directory and timer
     setupScreenshotDirectory();
-
-    // Initialize screenshot timer
-    m_screenshotTimer = new QTimer(this);
-    connect(m_screenshotTimer, &QTimer::timeout, this, &TimeTrackerMainWindow::captureScreenshot);
-
-    // Set interval: 10 seconds for development/testing, 10 minutes for production
-    m_screenshotTimer->setInterval(10 * 1000);  // 10 seconds for testing
-    // m_screenshotTimer->setInterval(10 * 60 * 1000);  // 10 minutes for production
-
-    m_screenshotTimer->start();
-    qDebug() << "Screenshot timer started with" << m_screenshotTimer->interval() << "ms interval";
+    configureScreenshotTimer();
 
     // Setup Windows hooks for activity tracking
     m_keyboardHook = SetWindowsHookExW(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
@@ -192,6 +183,7 @@ TimeTrackerMainWindow::~TimeTrackerMainWindow()
     // Stop screenshot timer
     if (m_screenshotTimer) {
         m_screenshotTimer->stop();
+        qDebug() << "Screenshot timer stopped";
     }
 
     // Clean up Windows hooks
@@ -204,6 +196,8 @@ TimeTrackerMainWindow::~TimeTrackerMainWindow()
         UnhookWindowsHookEx(m_mouseHook);
         m_mouseHook = nullptr;
     }
+
+    qDebug() << "TimeTrackerMainWindow destroyed and all resources cleaned up";
 }
 
 void TimeTrackerMainWindow::showWindow()
@@ -255,7 +249,9 @@ void TimeTrackerMainWindow::setupSystemTray()
         }
     });
     
-    m_trayIcon->showMessage("Time Tracker", "Application started and running in system tray",
+    m_trayIcon->showMessage("Time Tracker",
+                           QString("Application started - Screenshot capture every %1 seconds")
+                           .arg(m_screenshotInterval / 1000),
                            QSystemTrayIcon::Information, 3000);
 }
 
@@ -264,12 +260,17 @@ void TimeTrackerMainWindow::closeEvent(QCloseEvent *event)
     // Hide the window instead of closing
     hide();
 
-    // Show tray notification
+    // Show enhanced tray notification with screenshot status
+    QString message = QString("Screenshot capture and activity logging continue in background.\n"
+                             "Capturing every %1 seconds at %2% quality.")
+                     .arg(m_screenshotInterval / 1000)
+                     .arg(m_jpegQuality);
+
     m_trayIcon->showMessage(
         "Time Tracker is Active",
-        "The application continues to run in the background.",
+        message,
         QSystemTrayIcon::Information,
-        3000 // 3 seconds
+        4000 // 4 seconds for longer message
     );
 
     // Prevent the app from quitting
@@ -297,8 +298,32 @@ void TimeTrackerMainWindow::setupScreenshotDirectory()
     }
 }
 
+void TimeTrackerMainWindow::configureScreenshotTimer()
+{
+    // Initialize screenshot timer
+    m_screenshotTimer = new QTimer(this);
+    connect(m_screenshotTimer, &QTimer::timeout, this, &TimeTrackerMainWindow::captureScreenshot);
+
+    // Configure interval based on build type
+#ifdef QT_DEBUG
+    m_screenshotInterval = 10 * 1000;      // 10 seconds for development/testing
+#else
+    m_screenshotInterval = 10 * 60 * 1000; // 10 minutes for production
+#endif
+
+    m_screenshotTimer->setInterval(m_screenshotInterval);
+    m_screenshotTimer->start();
+
+    qDebug() << "Screenshot timer configured and started:";
+    qDebug() << "  Interval:" << m_screenshotInterval << "ms ("
+             << (m_screenshotInterval / 1000) << "seconds)";
+    qDebug() << "  Quality:" << m_jpegQuality << "%";
+    qDebug() << "  Directory:" << m_screenshotDirectory;
+}
+
 void TimeTrackerMainWindow::captureScreenshot()
 {
+    QMutexLocker locker(&m_screenshotMutex);
     qDebug() << "Capturing screenshot...";
 
     // Get the primary screen
@@ -311,19 +336,23 @@ void TimeTrackerMainWindow::captureScreenshot()
     // Capture the entire screen
     QPixmap screenshot = primaryScreen->grabWindow(0);
     if (screenshot.isNull()) {
-        qWarning() << "Failed to capture screenshot";
+        qWarning() << "Failed to capture screenshot - grabWindow returned null";
         return;
     }
 
-    // Generate timestamp-based filename
-    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+    // Generate enhanced timestamp-based filename with milliseconds
+    QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
     QString filename = QString("screenshot_%1.jpg").arg(timestamp);
     QString fullPath = QDir(m_screenshotDirectory).filePath(filename);
 
-    // Save the screenshot as JPEG with 85% quality
-    if (screenshot.save(fullPath, "JPEG", 85)) {
-        qDebug() << "Screenshot saved successfully:" << fullPath;
+    // Save the screenshot as JPEG with configurable quality
+    if (screenshot.save(fullPath, "JPEG", m_jpegQuality)) {
+        qDebug() << "Screenshot saved successfully:" << fullPath
+                 << "Size:" << screenshot.size()
+                 << "Quality:" << m_jpegQuality << "%";
     } else {
         qWarning() << "Failed to save screenshot:" << fullPath;
+        qWarning() << "Directory exists:" << QDir(m_screenshotDirectory).exists();
+        qWarning() << "Directory writable:" << QFileInfo(m_screenshotDirectory).isWritable();
     }
 }

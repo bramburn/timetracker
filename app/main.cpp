@@ -16,9 +16,9 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     // Set application properties
-    app.setApplicationName("Time Tracker");
+    app.setApplicationName("TimeTrackerApp");
     app.setApplicationVersion("1.0.0");
-    app.setOrganizationName("Time Tracker Organization");
+    app.setOrganizationName("TimeTracker");
 
     // Debug information about Qt installation
     qDebug() << "Qt version:" << QT_VERSION_STR;

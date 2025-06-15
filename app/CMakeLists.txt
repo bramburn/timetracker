@@ -24,8 +24,8 @@ set(CMAKE_AUTORCC ON)
 # Enable testing
 enable_testing()
 
-# Find GTest package
-find_package(GTest CONFIG REQUIRED)
+# Find GTest package (optional for now)
+find_package(GTest CONFIG QUIET)
 
 # =============================================================================
 # TimeTrackerLib - Static Library
@@ -71,29 +71,35 @@ set_target_properties(TimeTrackerApp PROPERTIES
 )
 
 # =============================================================================
-# TimeTrackerTests - Test Executable
+# TimeTrackerTests - Test Executable (only if GTest is found)
 # =============================================================================
 
-# Add test executable
-add_executable(TimeTrackerTests
-    tests/main_test.cpp
-)
+if(GTest_FOUND)
+    # Add test executable
+    add_executable(TimeTrackerTests
+        tests/main_test.cpp
+    )
 
-# Link the library and GTest to the test executable
-target_link_libraries(TimeTrackerTests PRIVATE
-    TimeTrackerLib
-    GTest::gtest
-    GTest::gtest_main
-)
+    # Link the library and GTest to the test executable
+    target_link_libraries(TimeTrackerTests PRIVATE
+        TimeTrackerLib
+        GTest::gtest
+        GTest::gtest_main
+    )
 
-# Set output directory for tests
-set_target_properties(TimeTrackerTests PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
+    # Set output directory for tests
+    set_target_properties(TimeTrackerTests PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
 
-# Discover and register tests with CTest
-include(GoogleTest)
-gtest_discover_tests(TimeTrackerTests)
+    # Discover and register tests with CTest
+    include(GoogleTest)
+    gtest_discover_tests(TimeTrackerTests)
+
+    message(STATUS "GTest found - building tests")
+else()
+    message(STATUS "GTest not found - skipping tests")
+endif()
 
 # =============================================================================
 # Windows-specific configurations
@@ -110,30 +116,32 @@ if(WIN32)
         $<TARGET_FILE_DIR:TimeTrackerApp>
     )
 
-    # Copy Qt DLLs for tests
-    add_custom_command(TARGET TimeTrackerTests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:Qt6::Core>
-        $<TARGET_FILE:Qt6::Gui>
-        $<TARGET_FILE:Qt6::Widgets>
-        $<TARGET_FILE_DIR:TimeTrackerTests>
-    )
+    # Copy Qt DLLs for tests (only if tests are built)
+    if(TARGET TimeTrackerTests)
+        add_custom_command(TARGET TimeTrackerTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:Qt6::Core>
+            $<TARGET_FILE:Qt6::Gui>
+            $<TARGET_FILE:Qt6::Widgets>
+            $<TARGET_FILE_DIR:TimeTrackerTests>
+        )
 
-    # Copy Qt platform plugins for tests - improved with error handling
-    add_custom_command(TARGET TimeTrackerTests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows.dll"
-        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_PREFIX_PATH}/plugins/platforms/qminimal.dll"
-        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${CMAKE_PREFIX_PATH}/plugins/platforms/qoffscreen.dll"
-        $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
-        COMMENT "Copying Qt platform plugins for tests"
-    )
+        # Copy Qt platform plugins for tests - improved with error handling
+        add_custom_command(TARGET TimeTrackerTests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+            $<TARGET_FILE_DIR:TimeTrackerTests>/platforms
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qwindows.dll"
+            $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qminimal.dll"
+            $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_PREFIX_PATH}/plugins/platforms/qoffscreen.dll"
+            $<TARGET_FILE_DIR:TimeTrackerTests>/platforms/
+            COMMENT "Copying Qt platform plugins for tests"
+        )
+    endif()
 
     # Use windeployqt for proper Qt deployment (most reliable method)
     find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS ${CMAKE_PREFIX_PATH}/bin)

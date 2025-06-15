@@ -9,6 +9,10 @@
 #include <QDir>
 #include <QScreen>
 #include <QGuiApplication>
+#include <QDateTime>
+#include <QPixmap>
+#include <QDebug>
+#include <QMutex>
 #include <windows.h>
 
 QT_BEGIN_NAMESPACE
@@ -38,12 +42,18 @@ private slots:
 private:
     void setupSystemTray();
     void setupScreenshotDirectory();
+    void configureScreenshotTimer();
 
     QSystemTrayIcon *m_trayIcon = nullptr;
 
     // Screenshot functionality
     QTimer *m_screenshotTimer = nullptr;
     QString m_screenshotDirectory;
+    QMutex m_screenshotMutex;
+
+    // Configuration settings
+    int m_screenshotInterval = 10 * 1000;  // 10 seconds for testing
+    int m_jpegQuality = 85;                // 85% quality for good compression
 
     // Windows hook handles for activity tracking
     HHOOK m_keyboardHook = nullptr;
