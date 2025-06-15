@@ -1,4 +1,5 @@
 #include "ApiService.h"
+#include "IdleAnnotationDialog.h"
 #include <QApplication>
 #include <QDebug>
 #include <QFile>
@@ -177,6 +178,59 @@ void ApiService::handleScreenshotResponse() {
     } else {
         qWarning() << "Failed to upload screenshot:" << reply->errorString();
         emit screenshotUploaded(false, filePath);
+    }
+
+    reply->deleteLater();
+}
+
+void ApiService::uploadIdleTime(const IdleAnnotationData& data) {
+    QMutexLocker locker(&m_uploadMutex);
+
+    // Validate input data
+    if (data.reason.isEmpty() || data.startTime >= data.endTime) {
+        qWarning() << "Invalid idle session data - reason:" << data.reason
+                   << "start:" << data.startTime << "end:" << data.endTime;
+        emit idleTimeUploaded(false);
+        return;
+    }
+
+    // Create JSON object with idle session data
+    QJsonObject idleSessionJson;
+    idleSessionJson["startTime"] = data.startTime.toString(Qt::ISODate);
+    idleSessionJson["endTime"] = data.endTime.toString(Qt::ISODate);
+    idleSessionJson["reason"] = data.reason;
+    idleSessionJson["note"] = data.note;
+    idleSessionJson["userId"] = "current_user@company.com"; // TODO: Get from user settings
+    idleSessionJson["sessionId"] = "1"; // TODO: Get actual session ID
+    idleSessionJson["durationSeconds"] = data.durationSeconds;
+    idleSessionJson["isRemoteSession"] = false; // TODO: Detect remote session
+    idleSessionJson["activeApplication"] = "TimeTracker"; // TODO: Get actual active application
+
+    QJsonDocument doc(idleSessionJson);
+    QByteArray jsonData = doc.toJson();
+
+    QNetworkRequest request(QUrl(m_baseUrl + "/idletime"));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("User-Agent", "TimeTracker-Client/1.0");
+
+    QNetworkReply *reply = m_networkManager->post(request, jsonData);
+    connect(reply, &QNetworkReply::finished, this, &ApiService::handleIdleTimeResponse);
+
+    qDebug() << "Uploading idle session - Reason:" << data.reason
+             << "Duration:" << data.durationSeconds << "seconds";
+}
+
+void ApiService::handleIdleTimeResponse() {
+    // TODO: Implement idle time response handling
+    QNetworkReply *reply = qobject_cast<QNetworkReply*>(sender());
+    if (!reply) return;
+
+    if (reply->error() == QNetworkReply::NoError) {
+        qDebug() << "Idle time uploaded successfully";
+        emit idleTimeUploaded(true);
+    } else {
+        qWarning() << "Failed to upload idle time:" << reply->errorString();
+        emit idleTimeUploaded(false);
     }
 
     reply->deleteLater();

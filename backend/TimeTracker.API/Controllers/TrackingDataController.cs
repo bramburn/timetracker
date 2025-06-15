@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using System.ComponentModel.DataAnnotations;
 using TimeTracker.API.Data;
 using TimeTracker.API.Models;
 using TimeTracker.API.Services;
@@ -113,6 +114,59 @@ namespace TimeTracker.API.Controllers
                 return StatusCode(500, "Internal server error");
             }
         }
+
+        [HttpPost("idletime")]
+        public async Task<IActionResult> UploadIdleTime([FromBody] IdleSessionDto idleSession)
+        {
+            try
+            {
+                if (idleSession == null)
+                {
+                    return BadRequest(new ErrorResponseDto { Error = "No idle session data provided" });
+                }
+
+                // Validate the idle session data
+                if (string.IsNullOrEmpty(idleSession.UserId) ||
+                    idleSession.StartTime >= idleSession.EndTime)
+                {
+                    return BadRequest(new ErrorResponseDto { Error = "Invalid idle session data" });
+                }
+
+                // Calculate duration
+                var durationSeconds = (int)(idleSession.EndTime - idleSession.StartTime).TotalSeconds;
+
+                var entity = new IdleSession
+                {
+                    StartTime = idleSession.StartTime,
+                    EndTime = idleSession.EndTime,
+                    Reason = idleSession.Reason ?? "Idle",
+                    Note = idleSession.Note ?? string.Empty,
+                    UserId = idleSession.UserId,
+                    SessionId = idleSession.SessionId ?? string.Empty,
+                    DurationSeconds = durationSeconds,
+                    IsRemoteSession = idleSession.IsRemoteSession,
+                    ActiveApplication = idleSession.ActiveApplication ?? string.Empty
+                };
+
+                await _context.IdleSessions.AddAsync(entity);
+                await _context.SaveChangesAsync();
+
+                _logger.LogInformation("Successfully saved idle session for user {UserId}, duration {Duration}s",
+                    entity.UserId, durationSeconds);
+
+                return Ok(new IdleSessionResponseDto
+                {
+                    Message = "Idle session saved successfully",
+                    Id = entity.Id,
+                    Duration = durationSeconds
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to save idle session");
+                return StatusCode(500, new ErrorResponseDto { Error = "Internal server error" });
+            }
+        }
     }
 
     // DTOs
@@ -123,5 +177,44 @@ namespace TimeTracker.API.Controllers
         public string Details { get; set; } = string.Empty;
         public string UserId { get; set; } = string.Empty;
         public string SessionId { get; set; } = string.Empty;
+    }
+
+    public class IdleSessionDto
+    {
+        [Required]
+        public DateTime StartTime { get; set; }
+
+        [Required]
+        public DateTime EndTime { get; set; }
+
+        [StringLength(50)]
+        public string? Reason { get; set; }
+
+        [StringLength(1000)]
+        public string? Note { get; set; }
+
+        [Required]
+        [StringLength(100)]
+        public string UserId { get; set; } = string.Empty;
+
+        [StringLength(50)]
+        public string? SessionId { get; set; }
+
+        public bool IsRemoteSession { get; set; }
+
+        [StringLength(100)]
+        public string? ActiveApplication { get; set; }
+    }
+
+    public class IdleSessionResponseDto
+    {
+        public string Message { get; set; } = string.Empty;
+        public int Id { get; set; }
+        public int Duration { get; set; }
+    }
+
+    public class ErrorResponseDto
+    {
+        public string Error { get; set; } = string.Empty;
     }
 }

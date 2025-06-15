@@ -10,6 +10,9 @@
 #include <QTimer>
 #include <QMutex>
 
+// Forward declaration
+struct IdleAnnotationData;
+
 class ApiService : public QObject {
     Q_OBJECT
 
@@ -20,14 +23,17 @@ public:
 public slots:
     void uploadActivityLogs();
     void uploadScreenshot(const QString& filePath, const QString& userId, const QString& sessionId);
+    void uploadIdleTime(const IdleAnnotationData& data);
 
 signals:
     void activityLogsUploaded(bool success);
     void screenshotUploaded(bool success, const QString& filePath);
+    void idleTimeUploaded(bool success);
 
 private slots:
     void handleActivityResponse();
     void handleScreenshotResponse();
+    void handleIdleTimeResponse();
 
 private:
     void setupNetworkManager();

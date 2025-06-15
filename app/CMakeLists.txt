@@ -138,6 +138,10 @@ add_library(TimeTrackerLib STATIC
     TimeTrackerMainWindow.cpp
     ApiService.h
     ApiService.cpp
+    IdleDetector.h
+    IdleDetector.cpp
+    IdleAnnotationDialog.h
+    IdleAnnotationDialog.cpp
 )
 
 # Link Qt6 libraries to the library

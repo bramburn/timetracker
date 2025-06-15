@@ -18,8 +18,10 @@
 #include <string>
 #include <vector>
 
-// Forward declaration
+// Forward declarations
 class ApiService;
+class IdleDetector;
+class IdleAnnotationDialog;
 
 QT_BEGIN_NAMESPACE
 class QLabel;
@@ -45,14 +47,25 @@ private slots:
     void exitApplication();
     void captureScreenshot();
     void trackActiveApplication();
+    void onIdleStarted(int idleThresholdSeconds);
+    void onIdleEnded(int idleDurationSeconds);
+    void onIdleAnnotationSubmitted(const QString& reason, const QString& note);
 
 private:
     void setupSystemTray();
     void setupScreenshotDirectory();
     void configureScreenshotTimer();
     void configureAppTracker();
+    void configureIdleDetection();
+    void showIdleAnnotationDialog(int idleDurationSeconds);
+    QString formatDuration(int seconds);
     QString getCurrentUserEmail();
     QString getCurrentSessionId();
+
+    // Windows API hook callbacks
+    static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
+    static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam);
+    static TimeTrackerMainWindow* s_instance;
 
     QSystemTrayIcon *m_trayIcon = nullptr;
 
@@ -76,6 +89,10 @@ private:
 
     // API service for backend communication
     ApiService *m_apiService = nullptr;
+
+    // Idle detection components
+    IdleDetector *m_idleDetector = nullptr;
+    QDateTime m_idleStartTime;
 };
 
 #endif // TIMETRACKERMAINWINDOW_H

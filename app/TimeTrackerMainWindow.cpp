@@ -1,5 +1,7 @@
 #include "TimeTrackerMainWindow.h"
 #include "ApiService.h"
+#include "IdleDetector.h"
+#include "IdleAnnotationDialog.h"
 #include <QApplication>
 #include <QLabel>
 #include <QVBoxLayout>
@@ -20,10 +22,17 @@
 #include <sstream>
 #include <Psapi.h>
 
+// Static instance pointer for Windows hooks
+TimeTrackerMainWindow* TimeTrackerMainWindow::s_instance = nullptr;
+
 // Static callback functions for Windows hooks
-static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK TimeTrackerMainWindow::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode == HC_ACTION) {
+        // Update idle detector if instance exists
+        if (s_instance && s_instance->m_idleDetector) {
+            s_instance->m_idleDetector->updateLastActivityTime();
+        }
         std::ofstream log("activity_log.txt", std::ios::app);
         if (log.is_open()) {
             // Get current timestamp
@@ -64,9 +73,13 @@ static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lP
     return CallNextHookEx(NULL, nCode, wParam, lParam);
 }
 
-static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK TimeTrackerMainWindow::LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lParam)
 {
     if (nCode == HC_ACTION) {
+        // Update idle detector if instance exists
+        if (s_instance && s_instance->m_idleDetector) {
+            s_instance->m_idleDetector->updateLastActivityTime();
+        }
         std::ofstream log("activity_log.txt", std::ios::app);
         if (log.is_open()) {
             // Get current timestamp
@@ -116,6 +129,9 @@ static LRESULT CALLBACK LowLevelMouseProc(int nCode, WPARAM wParam, LPARAM lPara
 TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    // Set static instance for hook callbacks
+    s_instance = this;
+
     setWindowTitle("Time Tracker Application");
     setFixedSize(400, 300);
 
@@ -153,6 +169,9 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
     // Setup application tracking timer
     configureAppTracker();
 
+    // Setup idle detection
+    configureIdleDetection();
+
     // Initialize API service for backend communication
     m_apiService = new ApiService(this);
 
@@ -172,6 +191,15 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
                     qDebug() << "Activity logs upload completed successfully";
                 } else {
                     qWarning() << "Activity logs upload failed";
+                }
+            });
+
+    connect(m_apiService, &ApiService::idleTimeUploaded,
+            this, [this](bool success) {
+                if (success) {
+                    qDebug() << "Idle time upload completed successfully";
+                } else {
+                    qWarning() << "Idle time upload failed";
                 }
             });
 
@@ -207,6 +235,9 @@ TimeTrackerMainWindow::TimeTrackerMainWindow(QWidget *parent)
 
 TimeTrackerMainWindow::~TimeTrackerMainWindow()
 {
+    // Reset static instance
+    s_instance = nullptr;
+
     // Stop screenshot timer
     if (m_screenshotTimer) {
         m_screenshotTimer->stop();
@@ -217,6 +248,12 @@ TimeTrackerMainWindow::~TimeTrackerMainWindow()
     if (m_appTrackerTimer) {
         m_appTrackerTimer->stop();
         qDebug() << "Application tracking timer stopped";
+    }
+
+    // Stop idle detector
+    if (m_idleDetector) {
+        m_idleDetector->stop();
+        qDebug() << "Idle detector stopped";
     }
 
     // Clean up Windows hooks
@@ -524,4 +561,136 @@ QString TimeTrackerMainWindow::getCurrentSessionId()
     // In a real implementation, this would be a unique session identifier
     static QString sessionId = QString::number(QDateTime::currentSecsSinceEpoch());
     return sessionId;
+}
+
+void TimeTrackerMainWindow::configureIdleDetection()
+{
+    // Initialize idle detector
+    m_idleDetector = new IdleDetector(this);
+
+    // Set 5-minute threshold (industry standard)
+    m_idleDetector->setIdleThresholdSeconds(5 * 60); // 5 minutes = 300 seconds
+
+    // Connect idle detector signals
+    connect(m_idleDetector, &IdleDetector::idleStarted,
+            this, &TimeTrackerMainWindow::onIdleStarted);
+    connect(m_idleDetector, &IdleDetector::idleEnded,
+            this, &TimeTrackerMainWindow::onIdleEnded);
+
+    // Start the idle detector
+    m_idleDetector->start();
+
+    qDebug() << "Idle detection configured and started:";
+    qDebug() << "  Threshold: 5 minutes (300 seconds)";
+    qDebug() << "  Check interval: 30 seconds";
+}
+
+void TimeTrackerMainWindow::onIdleStarted(int idleThresholdSeconds)
+{
+    // Record when idle state started
+    m_idleStartTime = QDateTime::currentDateTime().addSecs(-idleThresholdSeconds);
+
+    qDebug() << "User entered idle state after" << idleThresholdSeconds << "seconds of inactivity";
+    qDebug() << "Idle start time:" << m_idleStartTime.toString(Qt::ISODate);
+
+    // Update system tray to show idle status
+    if (m_trayIcon) {
+        m_trayIcon->setToolTip("Time Tracker - User Idle");
+    }
+}
+
+void TimeTrackerMainWindow::onIdleEnded(int idleDurationSeconds)
+{
+    qDebug() << "User activity resumed after" << idleDurationSeconds << "seconds of idle time";
+
+    // Update system tray to show active status
+    if (m_trayIcon) {
+        m_trayIcon->setToolTip("Time Tracker - Active");
+        m_trayIcon->showMessage("Activity Resumed",
+            QString("Idle period of %1 detected").arg(formatDuration(idleDurationSeconds)),
+            QSystemTrayIcon::Information, 3000);
+    }
+
+    // Show idle annotation dialog for periods longer than 1 minute
+    if (idleDurationSeconds >= 60) {
+        showIdleAnnotationDialog(idleDurationSeconds);
+    }
+}
+
+void TimeTrackerMainWindow::showIdleAnnotationDialog(int idleDurationSeconds)
+{
+    QDateTime endTime = QDateTime::currentDateTime();
+    QDateTime startTime = m_idleStartTime;
+
+    // Create and show the idle annotation dialog
+    IdleAnnotationDialog *dialog = new IdleAnnotationDialog(startTime, endTime, this);
+
+    // Connect the dialog's submission signal
+    connect(dialog, &IdleAnnotationDialog::annotationSubmitted,
+            this, &TimeTrackerMainWindow::onIdleAnnotationSubmitted);
+
+    // Show dialog and bring to front
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+
+    // Ensure dialog appears on top
+    dialog->setWindowFlags(Qt::Dialog | Qt::WindowStaysOnTopHint);
+
+    qDebug() << "Showing idle annotation dialog for" << idleDurationSeconds << "seconds";
+}
+
+void TimeTrackerMainWindow::onIdleAnnotationSubmitted(const QString& reason, const QString& note)
+{
+    QDateTime endTime = QDateTime::currentDateTime();
+    QDateTime startTime = m_idleStartTime;
+    int durationSeconds = startTime.secsTo(endTime);
+
+    // Create idle annotation data
+    IdleAnnotationData data;
+    data.reason = reason;
+    data.note = note;
+    data.startTime = startTime;
+    data.endTime = endTime;
+    data.durationSeconds = durationSeconds;
+
+    // Send to server via API service
+    if (m_apiService) {
+        m_apiService->uploadIdleTime(data);
+    }
+
+    // Log locally for backup
+    std::ofstream logFile("activity_log.txt", std::ios::app);
+    if (logFile.is_open()) {
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+        std::tm tm;
+        localtime_s(&tm, &now_c);
+
+        std::stringstream timestamp;
+        timestamp << std::put_time(&tm, "%Y-%m-%d %H:%M:%S");
+
+        logFile << timestamp.str() << " - IDLE_ANNOTATED"
+               << " - DURATION: " << durationSeconds << "s"
+               << " - REASON: " << reason.toStdString()
+               << " - NOTE: " << note.toStdString() << std::endl;
+        logFile.close();
+    }
+
+    qDebug() << "Idle time annotated:" << reason << "Note:" << note << "Duration:" << durationSeconds << "seconds";
+}
+
+QString TimeTrackerMainWindow::formatDuration(int seconds)
+{
+    int hours = seconds / 3600;
+    int minutes = (seconds % 3600) / 60;
+    int secs = seconds % 60;
+
+    if (hours > 0) {
+        return QString("%1h %2m %3s").arg(hours).arg(minutes).arg(secs);
+    } else if (minutes > 0) {
+        return QString("%1m %2s").arg(minutes).arg(secs);
+    } else {
+        return QString("%1s").arg(secs);
+    }
 }

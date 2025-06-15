@@ -11,6 +11,7 @@ namespace TimeTracker.API.Data
 
         public DbSet<ActivityLog> ActivityLogs { get; set; }
         public DbSet<Screenshot> Screenshots { get; set; }
+        public DbSet<IdleSession> IdleSessions { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -34,8 +35,26 @@ namespace TimeTracker.API.Data
                 entity.Property(e => e.ThumbnailUrl).IsRequired().HasMaxLength(500);
                 entity.Property(e => e.UserId).IsRequired().HasMaxLength(100);
                 entity.Property(e => e.SessionId).HasMaxLength(50);
-                
+
                 entity.HasIndex(e => new { e.UserId, e.Timestamp });
+            });
+
+            modelBuilder.Entity<IdleSession>(entity =>
+            {
+                entity.HasKey(e => e.Id);
+                entity.Property(e => e.StartTime).IsRequired();
+                entity.Property(e => e.EndTime).IsRequired();
+                entity.Property(e => e.Reason).IsRequired().HasMaxLength(50);
+                entity.Property(e => e.Note).HasMaxLength(1000);
+                entity.Property(e => e.UserId).IsRequired().HasMaxLength(100);
+                entity.Property(e => e.SessionId).HasMaxLength(50);
+                entity.Property(e => e.ActiveApplication).HasMaxLength(100);
+
+                // Performance indexes
+                entity.HasIndex(e => new { e.UserId, e.StartTime })
+                      .HasDatabaseName("IX_IdleSessions_UserId_StartTime");
+                entity.HasIndex(e => e.Reason)
+                      .HasDatabaseName("IX_IdleSessions_Reason");
             });
         }
     }
